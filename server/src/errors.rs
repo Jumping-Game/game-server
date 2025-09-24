@@ -8,10 +8,14 @@ pub enum ErrorCode {
     BadVersion,
     RoomNotFound,
     RoomFull,
+    NameTaken,
+    CheatDetected,
+    InvalidState,
     Unauthorized,
     InvalidTick,
     SlowConsumer,
     RateLimited,
+    RoomClosed,
     Internal,
 }
 
@@ -46,10 +50,14 @@ impl ServerError {
             ErrorCode::BadVersion => StatusCode::BAD_REQUEST,
             ErrorCode::RoomNotFound => StatusCode::NOT_FOUND,
             ErrorCode::RoomFull => StatusCode::CONFLICT,
+            ErrorCode::NameTaken => StatusCode::CONFLICT,
+            ErrorCode::CheatDetected => StatusCode::FORBIDDEN,
+            ErrorCode::InvalidState => StatusCode::BAD_REQUEST,
             ErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
             ErrorCode::InvalidTick => StatusCode::BAD_REQUEST,
             ErrorCode::SlowConsumer => StatusCode::TOO_MANY_REQUESTS,
             ErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+            ErrorCode::RoomClosed => StatusCode::GONE,
             ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
