@@ -1,16 +1,4 @@
-mod auth;
-mod backpressure;
-mod config;
-mod errors;
-mod http;
-mod matchmaker;
-mod metrics;
-mod presence;
-mod protocol;
-mod rate_limit;
-mod room;
-pub mod sim;
-mod ws;
+use server::{config, http};
 
 use anyhow::Context;
 use axum::Router;

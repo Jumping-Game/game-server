@@ -15,6 +15,15 @@ cargo run -p server
 
 Configuration defaults live in `configs/server.example.toml`. Override values via environment variables listed in `server/src/config.rs`.
 
+## Docker image
+
+A GitHub Actions workflow builds and publishes a container image to the GitHub Container Registry (`ghcr.io`). After the workflow runs on the `main` branch, pull and run the server locally with:
+
+```bash
+docker pull ghcr.io/<your-org-or-user>/game-server:main
+docker run --rm -p 3000:3000 ghcr.io/<your-org-or-user>/game-server:main
+```
+
 ## Development workflow
 
 - `make build`

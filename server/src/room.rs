@@ -48,9 +48,7 @@ impl Room {
 
     pub fn register_player(&mut self, player_id: &str) {
         self.simulation.ensure_player(&mut self.state, player_id);
-        self.inputs
-            .entry(player_id.to_string())
-            .or_insert_with(VecDeque::new);
+        self.inputs.entry(player_id.to_string()).or_default();
     }
 
     pub fn push_input(&mut self, player_id: &str, event: InputEvent) -> Result<(), ServerError> {
@@ -65,10 +63,7 @@ impl Room {
                 "input outside acceptance window",
             ));
         }
-        let queue = self
-            .inputs
-            .entry(player_id.to_string())
-            .or_insert_with(VecDeque::new);
+        let queue = self.inputs.entry(player_id.to_string()).or_default();
         queue.push_back(event);
         Ok(())
     }
