@@ -1182,6 +1182,7 @@ dependencies = [
  "prometheus",
  "proptest",
  "rand 0.8.5",
+ "regex",
  "serde",
  "serde_json",
  "serde_with",

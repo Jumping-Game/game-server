@@ -23,6 +23,7 @@ url = "=2.3.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.2", default-features = false, features = ["fmt", "env-filter", "json"] }
 tower = "0.4"
+regex = { version = "1", default-features = false, features = ["std", "unicode", "unicode-case"] }
 
 [dev-dependencies]
 axum = { version = "0.6", features = ["macros", "ws"] }
