@@ -3,6 +3,12 @@ use std::collections::HashMap;
 
 pub struct SnapshotBuilder;
 
+impl Default for SnapshotBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SnapshotBuilder {
     pub fn new() -> Self {
         Self
