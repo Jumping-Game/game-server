@@ -56,7 +56,7 @@ async fn create_room(
         ServerError::with_source(
             crate::errors::ErrorCode::Internal,
             "failed to create room",
-            err.into(),
+            err,
         )
     })?;
     Ok(Json(bootstrap))

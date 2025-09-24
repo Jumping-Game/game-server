@@ -50,7 +50,7 @@ impl Room {
         self.simulation.ensure_player(&mut self.state, player_id);
         self.inputs
             .entry(player_id.to_string())
-            .or_insert_with(VecDeque::new);
+            .or_default();
     }
 
     pub fn push_input(&mut self, player_id: &str, event: InputEvent) -> Result<(), ServerError> {
@@ -68,7 +68,7 @@ impl Room {
         let queue = self
             .inputs
             .entry(player_id.to_string())
-            .or_insert_with(VecDeque::new);
+            .or_default();
         queue.push_back(event);
         Ok(())
     }
