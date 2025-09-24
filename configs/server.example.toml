@@ -1,0 +1,10 @@
+bind_address = "0.0.0.0:3000"
+ws_url = "wss://localhost:3000/v1/ws"
+region = "local"
+log_level = "info"
+room_capacity = 8
+snapshot_rate_hz = 10
+tick_rate_hz = 60
+max_rollback_ticks = 120
+input_lead_ticks = 2
+token_secret = "change-me"
