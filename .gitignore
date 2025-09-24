@@ -1,0 +1,19 @@
+# Build artifacts
+/target/
+**/target/
+
+# Rust tooling
+**/*.rs.bk
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
