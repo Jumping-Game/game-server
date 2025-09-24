@@ -2,11 +2,11 @@ use crate::{
     auth::{TokenIssuer, WsTokenClaims},
     config::Config,
     errors::{ErrorCode, ServerError},
-    protocol::{RoomSeed, WsBootstrap},
+    protocol::{RoomSeed, SERVER_PV},
 };
 use dashmap::{DashMap, DashSet};
 use rand::{distributions::Alphanumeric, Rng};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -23,16 +23,62 @@ pub struct RoomEntry {
     pub room_id: String,
     pub seed: RoomSeed,
     pub capacity: usize,
-    pub players: DashSet<String>,
+    pub players: DashMap<String, PlayerRecord>,
+    pub names: DashSet<String>,
     pub resume_tokens: Arc<RwLock<HashMap<String, String>>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PlayerRecord {
+    pub name: String,
+}
+
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StatusResponse {
-    pub regions: Vec<String>,
+    pub regions: Vec<RegionStatus>,
     pub server_pv: u32,
-    pub rooms_active: usize,
-    pub players_active: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegionStatus {
+    pub id: String,
+    pub ping_ms: u32,
+    pub ws_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRoomRequest {
+    pub name: String,
+    pub region: String,
+    pub max_players: usize,
+    pub mode: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRoomResponse {
+    pub room_id: String,
+    pub seed: RoomSeed,
+    pub region: String,
+    pub ws_url: String,
+    pub ws_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinRoomRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinRoomResponse {
+    pub room_id: String,
+    pub ws_url: String,
+    pub ws_token: String,
 }
 
 impl Matchmaker {
@@ -44,33 +90,79 @@ impl Matchmaker {
         }
     }
 
-    pub fn create_room(&self) -> anyhow::Result<WsBootstrap> {
+    pub fn create_room(
+        &self,
+        request: CreateRoomRequest,
+    ) -> Result<CreateRoomResponse, ServerError> {
+        if request.region != self.config.region {
+            return Err(ServerError::new(
+                ErrorCode::InvalidState,
+                format!("unsupported region: {}", request.region),
+            ));
+        }
+
+        if request.max_players == 0 {
+            return Err(ServerError::new(
+                ErrorCode::InvalidState,
+                "maxPlayers must be greater than 0",
+            ));
+        }
+
+        if request.max_players > self.config.room_capacity {
+            return Err(ServerError::new(
+                ErrorCode::InvalidState,
+                "requested maxPlayers exceeds server capacity",
+            ));
+        }
+
         let room_id = self.generate_room_id();
         let seed = RoomSeed::random();
         let entry = Arc::new(RoomEntry {
             room_id: room_id.clone(),
             seed,
-            capacity: self.config.room_capacity,
-            players: DashSet::new(),
+            capacity: request.max_players,
+            players: DashMap::new(),
+            names: DashSet::new(),
             resume_tokens: Arc::new(RwLock::new(HashMap::new())),
         });
         self.rooms.insert(room_id.clone(), entry.clone());
 
         let player_id = self.generate_player_id();
-        entry.players.insert(player_id.clone());
-        let ws_token = self
+        entry.players.insert(
+            player_id.clone(),
+            PlayerRecord {
+                name: request.name.clone(),
+            },
+        );
+        entry.names.insert(request.name);
+        let ws_token = match self
             .token_issuer
-            .mint_ws_token(WsTokenClaims::new(room_id.clone(), player_id.clone()))?;
-        Ok(WsBootstrap {
+            .mint_ws_token(WsTokenClaims::new(room_id.clone(), player_id.clone()))
+        {
+            Ok(token) => token,
+            Err(err) => {
+                self.rooms.remove(&room_id);
+                return Err(ServerError::with_source(
+                    ErrorCode::Internal,
+                    "failed to mint token",
+                    err,
+                ));
+            }
+        };
+        Ok(CreateRoomResponse {
             room_id,
             seed,
+            region: self.config.region.clone(),
             ws_url: self.config.ws_url.clone(),
             ws_token,
-            player_id,
         })
     }
 
-    pub fn join_room(&self, room_id: &str) -> Result<WsBootstrap, ServerError> {
+    pub fn join_room(
+        &self,
+        room_id: &str,
+        request: JoinRoomRequest,
+    ) -> Result<JoinRoomResponse, ServerError> {
         let entry = self
             .rooms
             .get(room_id)
@@ -78,24 +170,44 @@ impl Matchmaker {
         if entry.players.len() >= entry.capacity {
             return Err(ServerError::new(ErrorCode::RoomFull, "room full"));
         }
+        if entry.names.contains(&request.name) {
+            return Err(ServerError::new(
+                ErrorCode::NameTaken,
+                "display name already in use",
+            ));
+        }
         let player_id = self.generate_player_id();
-        entry.players.insert(player_id.clone());
-        let ws_token = self
+        let player_name = request.name;
+        entry.players.insert(
+            player_id.clone(),
+            PlayerRecord {
+                name: player_name.clone(),
+            },
+        );
+        entry.names.insert(player_name.clone());
+        let ws_token = match self
             .token_issuer
             .mint_ws_token(WsTokenClaims::new(room_id.to_string(), player_id.clone()))
-            .map_err(|_| ServerError::new(ErrorCode::Unauthorized, "token error"))?;
-        Ok(WsBootstrap {
+        {
+            Ok(token) => token,
+            Err(_) => {
+                entry.players.remove(&player_id);
+                entry.names.remove(&player_name);
+                return Err(ServerError::new(ErrorCode::Unauthorized, "token error"));
+            }
+        };
+        Ok(JoinRoomResponse {
             room_id: room_id.to_string(),
-            seed: entry.seed,
             ws_url: self.config.ws_url.clone(),
             ws_token,
-            player_id,
         })
     }
 
     pub fn leave_room(&self, room_id: &str, player_id: &str) {
         if let Some(entry) = self.rooms.get(room_id) {
-            entry.players.remove(player_id);
+            if let Some(record) = entry.players.remove(player_id) {
+                entry.names.remove(&record.1.name);
+            }
             if entry.players.is_empty() {
                 self.rooms.remove(room_id);
             }
@@ -103,13 +215,13 @@ impl Matchmaker {
     }
 
     pub fn status(&self) -> StatusResponse {
-        let rooms_active = self.rooms.len();
-        let players_active = self.rooms.iter().map(|entry| entry.players.len()).sum();
         StatusResponse {
-            regions: vec![self.config.region.clone()],
-            server_pv: crate::protocol::SERVER_PV,
-            rooms_active,
-            players_active,
+            regions: vec![RegionStatus {
+                id: self.config.region.clone(),
+                ping_ms: 0,
+                ws_url: self.config.ws_url.clone(),
+            }],
+            server_pv: SERVER_PV,
         }
     }
 
@@ -133,8 +245,10 @@ impl Matchmaker {
 
     pub async fn set_resume_token(&self, room_id: &str, player_id: &str, token: String) {
         if let Some(entry) = self.rooms.get(room_id) {
-            let mut guard = entry.resume_tokens.write().await;
-            guard.insert(player_id.to_string(), token);
+            if entry.players.contains_key(player_id) {
+                let mut guard = entry.resume_tokens.write().await;
+                guard.insert(player_id.to_string(), token);
+            }
         }
     }
 
@@ -145,11 +259,27 @@ impl Matchmaker {
         resume_token: &str,
     ) -> bool {
         if let Some(entry) = self.rooms.get(room_id) {
+            if !entry.players.contains_key(player_id) {
+                return false;
+            }
             let guard = entry.resume_tokens.read().await;
             if let Some(existing) = guard.get(player_id) {
                 return existing == resume_token;
             }
         }
         false
+    }
+
+    pub fn room_seed(&self, room_id: &str) -> Option<RoomSeed> {
+        self.rooms.get(room_id).map(|entry| entry.seed)
+    }
+
+    pub fn player_name(&self, room_id: &str, player_id: &str) -> Option<String> {
+        self.rooms.get(room_id).and_then(|entry| {
+            entry
+                .players
+                .get(player_id)
+                .map(|record| record.name.clone())
+        })
     }
 }

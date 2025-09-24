@@ -1,7 +1,7 @@
 use crate::{
     errors::{ErrorCode, ServerError},
-    protocol::{PlayerAction, SnapshotPayload},
-    sim::{Simulation, SimulationState},
+    protocol::SnapshotPayload,
+    sim::{PlayerInputSample, Simulation, SimulationState},
 };
 use std::collections::{HashMap, VecDeque};
 
@@ -24,7 +24,8 @@ impl Default for RoomConfig {
 pub struct InputEvent {
     pub tick: u64,
     pub seq: u64,
-    pub action: PlayerAction,
+    pub axis_x: f32,
+    pub jump: bool,
 }
 
 pub struct Room {
@@ -77,7 +78,14 @@ impl Room {
             while let Some(front) = queue.front() {
                 if front.tick <= self.state.tick + 1 {
                     let front = queue.pop_front().unwrap();
-                    inputs.push((player_id.clone(), front.action, front.seq));
+                    inputs.push((
+                        player_id.clone(),
+                        PlayerInputSample {
+                            axis_x: front.axis_x,
+                            jump: front.jump,
+                            seq: front.seq,
+                        },
+                    ));
                 } else {
                     break;
                 }
@@ -108,7 +116,8 @@ mod tests {
             InputEvent {
                 tick: 1,
                 seq: 1,
-                action: PlayerAction::Thrust,
+                axis_x: 0.5,
+                jump: true,
             },
         )
         .unwrap();
@@ -116,6 +125,6 @@ mod tests {
         let snap = room.snapshot(true);
         assert_eq!(snap.tick, 1);
         assert_eq!(snap.players.len(), 1);
-        assert!(snap.players[0].position_y.0 > 0.0);
+        assert!(snap.players[0].y > 0.0);
     }
 }

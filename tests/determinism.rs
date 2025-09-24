@@ -1,5 +1,4 @@
 use server::room::{InputEvent, Room, RoomConfig};
-use server::protocol::PlayerAction;
 
 #[test]
 fn deterministic_simulation() {
@@ -9,15 +8,11 @@ fn deterministic_simulation() {
     room_b.register_player("p1");
 
     for tick in 1..=1000 {
-        let action = if tick % 10 == 0 {
-            PlayerAction::Thrust
-        } else {
-            PlayerAction::Idle
-        };
         let input = InputEvent {
             tick,
             seq: tick,
-            action,
+            axis_x: if tick % 20 < 10 { -0.5 } else { 0.5 },
+            jump: tick % 15 == 0,
         };
         room_a.push_input("p1", input.clone()).unwrap();
         room_b.push_input("p1", input).unwrap();
@@ -25,6 +20,6 @@ fn deterministic_simulation() {
         room_b.step();
         let snap_a = room_a.snapshot(false);
         let snap_b = room_b.snapshot(false);
-        assert_eq!(snap_a.players[0].position_y.0, snap_b.players[0].position_y.0);
+        assert!((snap_a.players[0].y - snap_b.players[0].y).abs() < f32::EPSILON);
     }
 }

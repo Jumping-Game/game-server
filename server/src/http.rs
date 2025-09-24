@@ -2,10 +2,11 @@ use crate::{
     auth::TokenIssuer,
     config::Config,
     errors::ServerError,
-    matchmaker::{Matchmaker, StatusResponse},
-    metrics,
-    protocol::WsBootstrap,
-    ws,
+    matchmaker::{
+        CreateRoomRequest, CreateRoomResponse, JoinRoomRequest, JoinRoomResponse, Matchmaker,
+        StatusResponse,
+    },
+    metrics, ws,
 };
 use axum::{
     extract::{Path, State},
@@ -51,15 +52,10 @@ pub fn router(state: HttpState) -> Router {
 
 async fn create_room(
     State(state): State<Arc<HttpState>>,
-) -> Result<Json<WsBootstrap>, ServerError> {
-    let bootstrap = state.matchmaker.create_room().map_err(|err| {
-        ServerError::with_source(
-            crate::errors::ErrorCode::Internal,
-            "failed to create room",
-            err,
-        )
-    })?;
-    Ok(Json(bootstrap))
+    Json(request): Json<CreateRoomRequest>,
+) -> Result<(axum::http::StatusCode, Json<CreateRoomResponse>), ServerError> {
+    let bootstrap = state.matchmaker.create_room(request)?;
+    Ok((axum::http::StatusCode::CREATED, Json(bootstrap)))
 }
 
 #[derive(Deserialize)]
@@ -70,8 +66,9 @@ struct JoinPath {
 async fn join_room(
     Path(path): Path<JoinPath>,
     State(state): State<Arc<HttpState>>,
-) -> Result<Json<WsBootstrap>, ServerError> {
-    let bootstrap = state.matchmaker.join_room(&path.room_id)?;
+    Json(request): Json<JoinRoomRequest>,
+) -> Result<Json<JoinRoomResponse>, ServerError> {
+    let bootstrap = state.matchmaker.join_room(&path.room_id, request)?;
     Ok(Json(bootstrap))
 }
 

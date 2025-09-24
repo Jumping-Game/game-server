@@ -1,39 +1,14 @@
-pub mod fixed;
-pub mod physics;
-pub mod rng;
-pub mod snapshot;
-pub mod world;
-
-use crate::protocol::{PlatformSnapshot, PlayerAction, PlayerSnapshot, Quantized, SnapshotPayload};
-use fixed::Fixed;
-use physics::PhysicsWorld;
-use snapshot::SnapshotBuilder;
+use crate::protocol::{PlayerSnapshot, SnapshotPayload, SnapshotStats};
 use std::collections::HashMap;
-use world::WorldGenerator;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PlayerSimState {
     pub player_id: String,
-    pub position_y: Fixed,
-    pub velocity_y: Fixed,
+    pub x: f32,
+    pub y: f32,
+    pub vx: f32,
+    pub vy: f32,
     pub last_input_seq: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct SimulationConfig {
-    pub tick_rate: u32,
-    pub gravity: Fixed,
-    pub thrust: Fixed,
-}
-
-impl Default for SimulationConfig {
-    fn default() -> Self {
-        Self {
-            tick_rate: 60,
-            gravity: Fixed::from_f64(-0.1),
-            thrust: Fixed::from_f64(0.2),
-        }
-    }
 }
 
 #[derive(Debug, Default)]
@@ -42,75 +17,74 @@ pub struct SimulationState {
     pub players: HashMap<String, PlayerSimState>,
 }
 
-pub struct Simulation {
-    pub config: SimulationConfig,
-    pub world: WorldGenerator,
-    pub physics: PhysicsWorld,
-    pub snapshot_builder: SnapshotBuilder,
+#[derive(Debug, Clone, Copy)]
+pub struct PlayerInputSample {
+    pub axis_x: f32,
+    pub jump: bool,
+    pub seq: u64,
 }
 
+pub struct Simulation;
+
 impl Simulation {
-    pub fn new(seed: u64) -> Self {
-        Self {
-            config: SimulationConfig::default(),
-            world: WorldGenerator::new(seed),
-            physics: PhysicsWorld::new(),
-            snapshot_builder: SnapshotBuilder::new(),
-        }
+    pub fn new(_seed: u64) -> Self {
+        Self
     }
 
-    pub fn step(&self, state: &mut SimulationState, inputs: &[(String, PlayerAction, u64)]) {
-        state.tick += 1;
-        for (player_id, action, seq) in inputs {
+    pub fn step(&self, state: &mut SimulationState, inputs: &[(String, PlayerInputSample)]) {
+        state.tick = state.tick.saturating_add(1);
+        for (player_id, sample) in inputs {
             let entry = state
                 .players
                 .entry(player_id.clone())
                 .or_insert_with(|| PlayerSimState {
                     player_id: player_id.clone(),
-                    position_y: Fixed::ZERO,
-                    velocity_y: Fixed::ZERO,
-                    last_input_seq: 0,
+                    ..Default::default()
                 });
-            if entry.last_input_seq < *seq {
-                entry.last_input_seq = *seq;
+            entry.vx = sample.axis_x * 900.0;
+            if sample.jump {
+                entry.vy = 1200.0;
+                entry.y += 18.0;
+            } else {
+                entry.vy = (entry.vy - 200.0).max(-2200.0);
+                entry.y = (entry.y + entry.vy / 60.0).max(0.0);
             }
-            self.physics.apply_action(entry, action, &self.config);
-        }
-        for player in state.players.values_mut() {
-            self.physics.tick_player(player, &self.config);
+            entry.x = (entry.x + entry.vx / 60.0).clamp(0.0, 1080.0);
+            if entry.last_input_seq < sample.seq {
+                entry.last_input_seq = sample.seq;
+            }
         }
     }
 
     pub fn build_snapshot(&self, state: &SimulationState, full: bool) -> SnapshotPayload {
-        let platforms = self.world.platforms_for_tick(state.tick);
         let mut players: Vec<PlayerSnapshot> = state
             .players
             .values()
             .map(|p| PlayerSnapshot {
-                player_id: p.player_id.clone(),
-                position_y: Quantized::from_f64(p.position_y.to_f64()),
-                velocity_y: Quantized::from_f64(p.velocity_y.to_f64()),
+                id: p.player_id.clone(),
+                x: p.x,
+                y: p.y,
+                vx: p.vx,
+                vy: p.vy,
+                alive: true,
             })
             .collect();
-        players.sort_by(|a, b| a.player_id.cmp(&b.player_id));
-        let platform_snaps: Vec<PlatformSnapshot> = platforms
-            .into_iter()
-            .map(|(id, pos)| PlatformSnapshot {
-                platform_id: id,
-                position_y: Quantized::from_f64(pos.to_f64()),
-            })
-            .collect();
-        self.snapshot_builder.build(
-            state.tick,
-            players,
-            platform_snaps,
+        players.sort_by(|a, b| a.id.cmp(&b.id));
+        let last_input_seq = state
+            .players
+            .values()
+            .map(|p| p.last_input_seq)
+            .max()
+            .unwrap_or(0);
+        SnapshotPayload {
+            tick: state.tick,
+            ack_tick: state.tick.saturating_sub(1),
+            last_input_seq,
             full,
-            state
-                .players
-                .values()
-                .map(|p| (p.player_id.clone(), p.last_input_seq))
-                .collect(),
-        )
+            players,
+            events: Vec::new(),
+            stats: SnapshotStats::default(),
+        }
     }
 
     pub fn ensure_player(&self, state: &mut SimulationState, player_id: &str) {
@@ -119,9 +93,7 @@ impl Simulation {
             .entry(player_id.to_string())
             .or_insert_with(|| PlayerSimState {
                 player_id: player_id.to_string(),
-                position_y: Fixed::ZERO,
-                velocity_y: Fixed::ZERO,
-                last_input_seq: 0,
+                ..Default::default()
             });
     }
 }
