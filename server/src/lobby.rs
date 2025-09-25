@@ -536,7 +536,6 @@ impl Lobby {
                 guard.broadcast(frame).await;
                 drop(guard);
                 sim.start(start_payload.start_tick).await;
-                sim.force_full_snapshot().await;
             }
         }));
         Ok(payload)

@@ -292,6 +292,8 @@ pub struct NetPlayer {
     pub vy: f32,
     #[serde(default)]
     pub alive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub character_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

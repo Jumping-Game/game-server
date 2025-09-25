@@ -35,6 +35,8 @@ curl -X POST http://localhost:8080/v1/rooms/<ROOM_ID>/start \
   -d '{"playerId":"<MASTER_ID>","countdownSec":3}'
 ```
 
+Non-masters receive `403` with `{"code":"NOT_MASTER"}`.
+
 Toggle ready:
 
 ```bash
@@ -58,5 +60,13 @@ Immediately send a `join` payload:
 ```
 
 The server responds with `welcome`, `lobby_state`, and later lobby or simulation updates.
+
+### Live Flow Checklist
+
+1. **Lobby** – send `character_select` to lock in cosmetics and `ready_set` to toggle ready state.
+2. **Start** – only the room master may `POST /start` or send `start_request`; the `start` payload includes the entire player roster (id/name/role/characterId).
+3. **Countdown** – `start_countdown` announces the authoritative start time.
+4. **Running** – on `start`, the server immediately broadcasts a **full** `snapshot` (all alive players, incl. characterId) to every connection. Full snapshots repeat at least once per second and whenever a client reconnects.
+5. **Reconnect** – open a new WS, send `reconnect` with the last `ackTick` and `resumeToken`, and expect `welcome` + `lobby_state` followed by a full snapshot before deltas resume.
 
 Run tests with `make test`.
