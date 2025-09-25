@@ -284,11 +284,23 @@ impl Room {
 
     pub fn set_running(&mut self) -> StartPayload {
         self.state = RoomState::Running { start_tick: 0 };
+        let players = self
+            .players
+            .iter()
+            .map(|p| LobbyPlayer {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                role: p.role.as_str().to_string(),
+                ready: p.ready,
+                character_id: p.character_id.clone(),
+            })
+            .collect();
         StartPayload {
             start_tick: 0,
             server_tick: 0,
             server_time_ms: util::now_ms(),
             tps: 60,
+            players,
         }
     }
 
