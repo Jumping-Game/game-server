@@ -389,7 +389,7 @@ struct OutboundPumpInner {
 }
 
 enum PendingMessage {
-    Json(OutboundMessage),
+    Json(Box<OutboundMessage>),
     Control(Message),
 }
 
@@ -407,7 +407,7 @@ impl OutboundPump {
     async fn push_json(&self, message: OutboundMessage) -> bool {
         let mut queue = self.inner.queue.lock().await;
         let before = queue.dropped();
-        queue.push(PendingMessage::Json(message));
+        queue.push(PendingMessage::Json(Box::new(message)));
         let after = queue.dropped();
         drop(queue);
         self.inner.notify.notify_one();
@@ -452,7 +452,7 @@ async fn send_pending(
 ) -> Result<(), ServerError> {
     match message {
         PendingMessage::Json(message) => {
-            let text = serde_json::to_string(&message).map_err(|err| {
+            let text = serde_json::to_string(&*message).map_err(|err| {
                 ServerError::with_source(ErrorCode::Internal, "serialization error", err.into())
             })?;
             sink.send(Message::Text(text)).await.map_err(|err| {
