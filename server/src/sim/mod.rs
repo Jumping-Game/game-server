@@ -33,6 +33,11 @@ impl Simulation {
 
     pub fn step(&self, state: &mut SimulationState, inputs: &[(String, PlayerInputSample)]) {
         state.tick = state.tick.saturating_add(1);
+        for player in state.players.values_mut() {
+            player.vy = (player.vy - 200.0).max(-2200.0);
+            player.y = (player.y + player.vy / 60.0).max(0.0);
+            player.x = player.x.clamp(0.0, 1080.0);
+        }
         for (player_id, sample) in inputs {
             let entry = state
                 .players
@@ -41,22 +46,24 @@ impl Simulation {
                     player_id: player_id.clone(),
                     ..Default::default()
                 });
-            entry.vx = sample.axis_x * 900.0;
+            entry.vx = (sample.axis_x * 900.0).clamp(-900.0, 900.0);
+            entry.x = (entry.x + entry.vx / 60.0).clamp(0.0, 1080.0);
             if sample.jump {
                 entry.vy = 1200.0;
-                entry.y += 18.0;
-            } else {
-                entry.vy = (entry.vy - 200.0).max(-2200.0);
                 entry.y = (entry.y + entry.vy / 60.0).max(0.0);
             }
-            entry.x = (entry.x + entry.vx / 60.0).clamp(0.0, 1080.0);
             if entry.last_input_seq < sample.seq {
                 entry.last_input_seq = sample.seq;
             }
         }
     }
 
-    pub fn build_snapshot(&self, state: &SimulationState, full: bool) -> SnapshotPayload {
+    pub fn build_snapshot(
+        &self,
+        state: &SimulationState,
+        full: bool,
+        player_id: Option<&str>,
+    ) -> SnapshotPayload {
         let mut players: Vec<PlayerSnapshot> = state
             .players
             .values()
@@ -76,10 +83,15 @@ impl Simulation {
             .map(|p| p.last_input_seq)
             .max()
             .unwrap_or(0);
+        let ack_tick = state.tick;
+        let player_ack_seq = player_id
+            .and_then(|id| state.players.get(id))
+            .map(|p| p.last_input_seq)
+            .unwrap_or(last_input_seq);
         SnapshotPayload {
             tick: state.tick,
-            ack_tick: state.tick.saturating_sub(1),
-            last_input_seq,
+            ack_tick,
+            last_input_seq: player_ack_seq,
             full,
             players,
             events: Vec::new(),
@@ -95,5 +107,9 @@ impl Simulation {
                 player_id: player_id.to_string(),
                 ..Default::default()
             });
+    }
+
+    pub fn remove_player(&self, state: &mut SimulationState, player_id: &str) {
+        state.players.remove(player_id);
     }
 }
