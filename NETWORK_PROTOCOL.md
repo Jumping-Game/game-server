@@ -3,8 +3,8 @@
 **Project:** Vertical Jumper — Web/Android, Multiplayer
 **Scope:** Client ↔ Server networking for realtime gameplay + supporting APIs
 **Audience:** Game client devs (TS/Kotlin), Game server devs (Rust)
-**Status:** **Final v1.2** (compatible with Client Protocol `pv=1`)
-**Compat:** v1.1 → v1.2 is **backward compatible** for core gameplay; lobby/start flow is additive.
+**Status:** **Final v1.2.1** (compatible with Client Protocol `pv=1`)
+**Compat:** v1.2 → v1.2.1 is **backward compatible**; adds lobby/roster & snapshot clarity
 
 ---
 
@@ -41,45 +41,36 @@ Multiplayer **vertical jumper** with:
 * **HTTPS REST** for matchmaking/lobby.
 * **WSS** for realtime (inputs/snapshots, heartbeats, lobby updates).
 * **Deterministic simulation** @ **60 Hz** with **client prediction + server reconciliation** and **delta snapshots**.
-* **Lobby with Room Master**: the **creator is master** and controls when the game starts (countdown → synchronized start).
+* **Lobby with Room Master**: creator is **master**, controls **start** (countdown → synchronized start).
+* **Character selection in lobby**; selection carried into `start` and snapshots.
 
 ---
 
 ## 2. Transport & Environment
 
-**Realtime**
-
-* Protocol: **WebSocket over TLS** (`wss://`); local dev `ws://` allowed.
-* Framing: **JSON text** (binary reserved for future).
-* WS extension: **permessage-deflate** (negotiate; strongly recommended).
-
-**REST**
-
-* Protocol: **HTTPS**; local dev `http://localhost` allowed.
-* Auth: **`wsToken`** (short-lived) for WSS; REST endpoints that issue tokens are authenticated/limited per deployment.
-
-**Regions**
-
-* `GET /v1/status` advertises regions/WS URLs; client selects nearest/lowest RTT.
+**Realtime:** `wss://` (prod), `ws://` (local). JSON text frames; **permessage-deflate** recommended.
+**REST:** `https://` (prod), `http://localhost` (dev).
+**Auth:** short-lived **`wsToken`** for WS; REST issuing tokens may be authenticated.
+**Regions:** `GET /v1/status` advertises WS endpoints; client chooses nearest.
 
 ---
 
 ## 3. Versioning
 
-* **Protocol version `pv`** (integer) in **every frame**.
+* Every frame contains **`pv`** (protocol version).
 * Mismatch → `error{code:"BAD_VERSION"}` and close.
-* Current: `pv = 1`.
+* Current: **`pv = 1`**.
 
 ---
 
 ## 4. Data Types & Conventions
 
-* **Tick**: integer @ 60 Hz (`0,1,2,…`).
-* **Coords**: float pixels; origin **bottom-left**; **+Y up**.
+* **Tick:** integer @ 60 Hz (`0,1,2,…`).
+* **Coords:** float pixels; origin **bottom-left**; **+Y up**.
 * IDs: **string** (`playerId`, `roomId`).
-* 64-bit ints (e.g., seeds, checksums): **decimal strings**.
+* 64-bit numbers on wire: **decimal strings** (e.g., seeds, checksums).
 * Timestamps: **Unix ms** (`number`).
-* Field naming: **camelCase**.
+* Fields: **camelCase**.
 
 ---
 
@@ -92,22 +83,12 @@ Base: `https://api.example.com`
 ```http
 POST /v1/rooms
 Content-Type: application/json
-{
-  "name": "bene",
-  "region": "ap-southeast-1",
-  "maxPlayers": 4,
-  "mode": "endless"
-}
+{ "name":"bene", "region":"ap-southeast-1", "maxPlayers":4, "mode":"endless" }
 → 201
 {
-  "roomId": "ab12",
-  "seed": "7392012341",
-  "region": "ap-southeast-1",
-  "wsUrl": "wss://rt.apse1.example.com/v1/ws",
-  "wsToken": "…",                // binds {roomId, playerId}
-  "role": "master",              // "master" | "member"
-  "state": "lobby",              // "lobby" | "starting" | "running" | "finished"
-  "maxPlayers": 4
+  "roomId":"ab12","seed":"7392012341","region":"ap-southeast-1",
+  "wsUrl":"wss://rt.apse1.example.com/v1/ws","wsToken":"…",
+  "role":"master","state":"lobby","maxPlayers":4
 }
 ```
 
@@ -115,80 +96,57 @@ Content-Type: application/json
 
 ```http
 POST /v1/rooms/{roomId}/join
-{ "name": "ally" }
+{ "name":"ally" }
 → 200
-{
-  "roomId": "ab12",
-  "wsUrl": "wss://rt.apse1.example.com/v1/ws",
-  "wsToken": "…",
-  "role": "member",
-  "state": "lobby"
-}
+{ "roomId":"ab12","wsUrl":"wss://rt.apse1.example.com/v1/ws","wsToken":"…","role":"member","state":"lobby" }
 ```
 
 ### 5.3 Leave Room
 
 ```http
 POST /v1/rooms/{roomId}/leave
-{ "playerId": "p01", "reason": "left voluntarily" }  // reason optional
+{ "playerId":"p01", "reason":"left voluntarily" }   // reason optional
 → 204
 ```
-
-*Request body*
-
-| Field | Type   | Required | Notes |
-|-------|--------|----------|-------|
-| `playerId` | `string` | ✅ | Must match the authenticated player for the supplied `wsToken`. |
-| `reason` | `string` | ❌ | Optional free-form context (e.g., `"left voluntarily"`, `"disconnected"`). |
-
-Clients must always include the `playerId`. The server validates it against the room membership that was bound when the `wsToken` was issued. Omitting or mismatching the `playerId` results in `422 Unprocessable Entity` with an error such as `missing field "playerId"`.
 
 ### 5.4 Status
 
 ```http
 GET /v1/status
 → 200
-{
-  "regions": [
-    { "id":"ap-southeast-1", "pingMs":42, "wsUrl":"wss://rt.apse1.example.com/v1/ws" }
-  ],
-  "serverPv": 1
-}
+{ "regions":[{"id":"ap-southeast-1","pingMs":42,"wsUrl":"wss://rt.apse1.example.com/v1/ws"}], "serverPv":1 }
 ```
 
 ### 5.5 Start Game (master only)
 
 ```http
 POST /v1/rooms/{roomId}/start
-{ "countdownSec": 3 }  // optional, clamp e.g., 0–5
+{ "countdownSec": 3 }   // optional, clamp e.g., 0–5
 → 202
 { "state":"starting","startAtMs":1737765123456 }
 ```
 
-### 5.6 Ready Toggle (optional rule)
+### 5.6 Ready Toggle (optional)
 
 ```http
 POST /v1/rooms/{roomId}/ready
-{ "ready": true }
-→ 204
+{ "ready": true } → 204
 ```
-
-> NOTE: If you prefer WS control messages instead of REST for start/ready, see §8.
 
 ---
 
 ## 6. WebSocket Lifecycle
 
-1. Client opens `wss://rt.<region>/v1/ws?token={wsToken}` (or `ws://` local).
-2. Client sends **`join`** immediately.
-3. Server replies **`welcome`** (includes `role`, `roomState`, lobby snapshot).
-4. While `roomState="lobby"`: members may toggle **ready**; master may **start**.
-5. Server broadcasts **`start_countdown`**, then **`start`** (tick/time anchor).
-6. During `running`: client streams **`input`/`input_batch`**; server streams **`snapshot`**.
-7. Heartbeats: **`ping`/`pong`** every 5 s.
-8. Disconnects: use **`reconnect`** (§14).
+1. Open `…/v1/ws?token={wsToken}`.
+2. Send **`join`** immediately.
+3. Receive **`welcome`** (contains `role`, `roomState`, lobby snapshot).
+4. While `roomState="lobby"`: members toggle **ready** / select **character**, master may **start**.
+5. Server broadcasts **`start_countdown`** ⇒ then **`start`** (authoritative anchor).
+6. In `running`: client sends **`input`/`input_batch`**; server sends **`snapshot`**.
+7. **Heartbeat:** `ping`/`pong` every 5 s.
+8. **Reconnect:** use `reconnect` (§14).
 
-Close codes: 1000 normal; 1001 going away; 1006 abnormal.
+Close: 1000 normal; 1001 going away; 1006 abnormal.
 
 ---
 
@@ -196,11 +154,7 @@ Close codes: 1000 normal; 1001 going away; 1006 abnormal.
 
 ```json
 {
-  "type": "string",            // discriminator
-  "pv": 1,                     // protocol version
-  "seq": 184,                  // uint32, per-connection, wraps
-  "ts": 1737765432123,         // sender timestamp (ms)
-  "payload": {}                // message-specific body
+  "type":"string","pv":1,"seq":184,"ts":1737765432123,"payload":{ }
 }
 ```
 
@@ -211,35 +165,22 @@ Close codes: 1000 normal; 1001 going away; 1006 abnormal.
 ### 8.1 `join`
 
 ```json
-{
-  "type":"join","pv":1,"seq":1,"ts":1737765,
-  "payload":{
-    "name":"bene",
-    "clientVersion":"web-0.1.0",
-    "device":"Chrome_128",
-    "capabilities":{"tilt":false,"vibrate":false}
-  }
-}
+{"type":"join","pv":1,"seq":1,"ts":1737765,
+ "payload":{"name":"bene","clientVersion":"web-0.1.0","device":"Chrome_128","capabilities":{"tilt":false,"vibrate":false}}}
 ```
 
-### 8.2 `input` (single)
-
-Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollbackTicks, currentTick + inputLeadTicks]`.
+### 8.2 `input` (single) — 20–30 Hz
 
 ```json
-{
-  "type":"input","pv":1,"seq":182,"ts":1737766,
-  "payload":{"tick":1021,"axisX":-0.31,"jump":false,"checksum":"289327134"}
-}
+{"type":"input","pv":1,"seq":182,"ts":1737766,
+ "payload":{"tick":1021,"axisX":-0.31,"jump":false,"checksum":"289327134"}}
 ```
 
-### 8.3 `input_batch` (preferred on mobile)
+### 8.3 `input_batch` (preferred)
 
 ```json
-{
-  "type":"input_batch","pv":1,"seq":183,"ts":1737766,
-  "payload":{"startTick":1200,"frames":[{"d":0,"axisX":-0.4},{"d":1,"axisX":-0.2,"jump":true},{"d":2,"axisX":0.0}]}
-}
+{"type":"input_batch","pv":1,"seq":183,"ts":1737766,
+ "payload":{"startTick":1200,"frames":[{"d":0,"axisX":-0.4},{"d":1,"axisX":-0.2,"jump":true},{"d":2,"axisX":0.0}]}}
 ```
 
 ### 8.4 `ping`
@@ -251,13 +192,11 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
 ### 8.5 `reconnect`
 
 ```json
-{
-  "type":"reconnect","pv":1,"seq":2,"ts":1737768,
-  "payload":{"playerId":"p_abcd","resumeToken":"r_opaque_128b","lastAckTick":2110}
-}
+{"type":"reconnect","pv":1,"seq":2,"ts":1737768,
+ "payload":{"playerId":"p_abcd","resumeToken":"r_opaque_128b","lastAckTick":2110}}
 ```
 
-### 8.6 (Optional WS controls) `ready_set`, `start_request`
+### 8.6 Optional WS controls
 
 ```json
 {"type":"ready_set","pv":1,"seq":9,"ts":1737765,"payload":{"ready":true}}
@@ -269,78 +208,73 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
 
 ## 9. Server → Client Messages
 
-### 9.1 `welcome` (adds lobby info, role, roomState)
+### 9.1 `welcome` (lobby + role)
 
 ```json
-{
-  "type":"welcome","pv":1,"seq":1,"ts":1737765,
-  "payload":{
-    "playerId":"p_abcd",
-    "resumeToken":"r_opaque_128b",
-    "roomId":"ab12",
-    "seed":"7392012341",
-    "role":"master",
-    "roomState":"lobby",
-    "lobby":{
-      "players":[{"id":"p_abcd","name":"bene","ready":true,"role":"master","characterId":"aurora"}],
-      "maxPlayers":4
-    },
-    "cfg":{ "tps":60,"snapshotRateHz":10,"maxRollbackTicks":120,"inputLeadTicks":2,
-            "world":{"worldWidth":1080,"platformWidth":120,"platformHeight":18,"gapMin":120,"gapMax":240,
-                     "gravity":-2200,"jumpVy":1200,"springVy":1800,"maxVx":900,"tiltAccel":1200},
-            "difficulty":{"gapMinStart":120,"gapMinEnd":180,"gapMaxStart":240,"gapMaxEnd":320,
-                          "springChanceStart":0.1,"springChanceEnd":0.03}},
-    "featureFlags":{"enemies":false,"movingPlatforms":true}
-  }
-}
+{"type":"welcome","pv":1,"seq":1,"ts":1737765,
+ "payload":{
+  "playerId":"p_abcd","resumeToken":"r_opaque_128b","roomId":"ab12","seed":"7392012341",
+  "role":"master","roomState":"lobby",
+  "lobby":{"players":[{"id":"p_abcd","name":"bene","ready":true,"role":"master","characterId":"aurora"}],"maxPlayers":4},
+  "cfg":{"tps":60,"snapshotRateHz":10,"maxRollbackTicks":120,"inputLeadTicks":2,
+         "world":{"worldWidth":1080,"platformWidth":120,"platformHeight":18,"gapMin":120,"gapMax":240,
+                  "gravity":-2200,"jumpVy":1200,"springVy":1800,"maxVx":900,"tiltAccel":1200},
+         "difficulty":{"gapMinStart":120,"gapMinEnd":180,"gapMaxStart":240,"gapMaxEnd":320,"springChanceStart":0.1,"springChanceEnd":0.03}},
+  "featureFlags":{"enemies":false,"movingPlatforms":true}
+ }}
 ```
 
-### 9.2 `lobby_state` (membership/ready/role changes)
+### 9.2 `lobby_state`
 
 ```json
-{
-  "type":"lobby_state","pv":1,"seq":50,"ts":1737766,
-  "payload":{
-    "roomState":"lobby",
-    "players":[
-      {"id":"p_abcd","name":"bene","ready":true,"role":"master","characterId":"aurora"},
-      {"id":"p_efgh","name":"ally","ready":false,"role":"member","characterId":"cobalt"}
-    ]
-  }
-}
+{"type":"lobby_state","pv":1,"seq":50,"ts":1737766,
+ "payload":{
+  "roomState":"lobby",
+  "players":[
+    {"id":"p_abcd","name":"bene","ready":true,"role":"master","characterId":"aurora"},
+    {"id":"p_efgh","name":"ally","ready":false,"role":"member","characterId":"cobalt"}
+  ],
+  "maxPlayers":4
+ }}
 ```
 
 ### 9.3 `start_countdown`
 
 ```json
-{
-  "type":"start_countdown","pv":1,"seq":60,"ts":1737767,
-  "payload":{"startAtMs":1737765123456,"serverTick":12000,"countdownSec":3}
-}
+{"type":"start_countdown","pv":1,"seq":60,"ts":1737767,
+ "payload":{"startAtMs":1737765123456,"serverTick":12000,"countdownSec":3}}
 ```
 
-### 9.4 `start` (authoritative tick/time anchor)
+### 9.4 `start` (anchor + roster) — **MUST include players**
 
 ```json
-{
-  "type":"start","pv":1,"seq":61,"ts":1737767,
-  "payload":{"startTick":300,"serverTick":12042,"serverTimeMs":1737765123456,"tps":60}
-}
+{"type":"start","pv":1,"seq":61,"ts":1737767,
+ "payload":{
+  "startTick":300,"serverTick":12042,"serverTimeMs":1737765123456,"tps":60,
+  "players":[
+    {"id":"p_abcd","name":"bene","role":"master","ready":true,"characterId":"aurora"},
+    {"id":"p_efgh","name":"ally","role":"member","ready":true,"characterId":"cobalt"}
+  ]
+ }}
 ```
 
-### 9.5 `snapshot` (delta by default)
+### 9.5 `snapshot` (delta by default) — **broadcast semantics**
 
 ```json
-{
-  "type":"snapshot","pv":1,"seq":220,"ts":1737766,
-  "payload":{
-    "tick":2046,"ackTick":2044,"lastInputSeq":512,"full":false,
-    "players":[{"id":"p_abcd","x":321.1,"y":1120.5,"vx":9.0,"vy":1180.0,"alive":true}],
-    "events":[{"kind":"spring","x":512.0,"y":840.0,"tick":2044}],
-    "stats":{"droppedSnapshots":0}
-  }
-}
+{"type":"snapshot","pv":1,"seq":220,"ts":1737766,
+ "payload":{
+  "tick":2046,"ackTick":2044,"lastInputSeq":512,"full":false,
+  "players":[{"id":"p_abcd","x":321.1,"y":1120.5,"vx":9.0,"vy":1180.0,"alive":true}],
+  "events":[{"kind":"spring","x":512.0,"y":840.0,"tick":2044}],
+  "stats":{"droppedSnapshots":0}
+ }}
 ```
+
+**Server MUST**:
+
+* **Broadcast** every snapshot to **all** players in room.
+* Send a **full** snapshot **immediately after `start`** (≤ one snapshot interval) and at least **once per second**, and on **reconnect**.
+* Full snapshot includes **all alive players**. Delta snapshot includes every player that changed since the client’s last full.
 
 ### 9.6 `role_changed`
 
@@ -376,121 +310,108 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
 
 ## 10. Timing, Ticks & Reconciliation
 
-* **Tick rate**: `tps = 60`.
-
-* **Client loop**: fixed timestep; deterministic given `(seed, inputs)`.
-
-* **Snapshots**: ~10 Hz (100 ms cadence).
-
-* **Prediction**: simulate each tick locally.
-
-* **Reconciliation** on snapshot(t):
+* **tps = 60** fixed.
+* **Client**: fixed timestep; deterministic given `(seed, inputs)`.
+* **Snapshots**: ~10 Hz.
+* **Prediction**: simulate locally each tick.
+* **Reconciliation** on `snapshot(t)`:
 
   1. Replace local authoritative state at `t`.
   2. Re-apply buffered inputs `t+1…currentTick`.
-  3. Remote players: **interpolate** with render delay `≈ max(2×RTT, 100ms)`.
+  3. Remote players: interpolate with render delay `≈ max(2×RTT,100ms)`.
+* **Clock sync**: `ping/pong (t0,t1,t2)`; track RTT & skew.
 
-* **Clock sync**: `ping/pong` `(t0,t1,t2)` to derive RTT & skew; maintain mapping from server wallclock ↔ tick.
+**Start guarantees:** At `start`, server **queues a full snapshot** ≤100 ms so all peers appear.
 
 ---
 
 ## 11. Reliability, Acks, Backpressure & Rate Limits
 
-* WS ordered/reliable; include `seq` + `tick` for idempotency.
-* Server echoes **`ackTick`** and **`lastInputSeq`**.
-* **Input acceptance window**: `[currentTick - maxRollbackTicks, currentTick + inputLeadTicks]` (typ. `120`, `2`).
-* **Backpressure**: per-socket send queue cap (e.g., 3 snapshots). Drop oldest, keep latest, increment `droppedSnapshots`; persistent overflow → `SLOW_CONSUMER` then close.
-* **Client rate limits** (guidance):
-
-  * `input`/`input_batch`: ≤ **40 msg/s** (burst 60 for 1 s)
-  * `ping`: ≤ **1 / 5 s**
-  * Max message size: **4 KB**
-  * Max outbound bandwidth: **64 KB/s** over 10 s
-  * REST overuse: respond `429` + `Retry-After`.
+* WS is ordered/reliable; use `seq` and `tick` for idempotency.
+* Server echoes **`ackTick`** & **`lastInputSeq`**.
+* **Acceptance window:** `[currentTick - maxRollbackTicks, currentTick + inputLeadTicks]` (typ. `120`, `2`).
+* **Backpressure:** per-socket send queue cap (e.g., 3). Drop **oldest**, keep latest; increment `droppedSnapshots`. Persistent overflow → `SLOW_CONSUMER` close.
+* **Client limits (guidance):** `input(_batch)` ≤ 40 msg/s (burst 60 for 1s); `ping` ≤ 1/5s; payload ≤ 4 KB; ≤ 64 KB/s avg over 10s. REST overuse → `429` with `Retry-After`.
 
 ---
 
 ## 12. Room/Match Rules
 
-* On create: creator is **`role="master"`**; room `state="lobby"`.
-* Members can join while `state="lobby"`.
-* **Start authority**: only **master** can start (REST `/start` or WS `start_request`).
-* **Countdown**: broadcast `start_countdown` with `startAtMs`; server schedules **`start`** at anchor time.
-* **Ready gate (optional)**: if enabled, server rejects start unless all members are `ready=true` or a minimum quorum is met (`ROOM_NOT_READY`).
-* **Master transfer**: if master leaves in lobby, server promotes **oldest** or **priority** member and broadcasts `role_changed`.
-* During `running`, late joiners rejected (`ROOM_STATE_INVALID`) or placed in spectate (out of scope).
+* Creator is **master**; initial `state="lobby"`.
+* Members can join while `lobby`.
+* Only **master** may **start** (REST `/start` or WS `start_request`).
+* **Countdown** via `start_countdown` with `startAtMs`; at anchor, send `start`.
+* **Ready gate (optional):** server may require all/m-quorum `ready=true`.
+* **Master transfer:** if master leaves in lobby, promote oldest/priority; send `role_changed`.
+* In `running`, late joins rejected (`ROOM_STATE_INVALID`) or spectate (out of scope).
 
 ---
 
 ## 13. Error Codes
 
-| Code                     | Meaning                              | Client Action                     |
-| ------------------------ | ------------------------------------ | --------------------------------- |
-| `BAD_VERSION`            | Protocol mismatch                    | Prompt update                     |
-| `ROOM_NOT_FOUND`         | Room invalid/expired                 | Back to menu                      |
-| `ROOM_FULL`              | Max players reached                  | Try another room                  |
-| `NAME_TAKEN`             | Display name already used in room    | Rename                            |
-| `INVALID_STATE`          | Malformed message/payload            | Log; resync/retry                 |
-| `INVALID_TICK`           | Input tick outside acceptance window | Resync clock; drop late inputs    |
-| `RATE_LIMITED`           | Exceeded rate limits                 | Backoff                           |
-| `UNAUTHORIZED`           | Missing/invalid token                | Re-auth/join again                |
-| `SLOW_CONSUMER`          | Client cannot keep up                | Lower graphics; reconnect         |
-| `ROOM_CLOSED`            | Room ended                           | Exit                              |
-| `INTERNAL`               | Server error                         | Retry/backoff                     |
-| **`NOT_MASTER`**         | Member attempted master-only action  | Show error; disable start button  |
-| **`ROOM_STATE_INVALID`** | Action not allowed in current state  | Stay in lobby or handle per state |
-| **`ROOM_NOT_READY`**     | Ready rule unmet                     | Show missing-readiness UI         |
-| **`START_ALREADY`**      | Start already triggered              | Ignore duplicate                  |
-| **`COUNTDOWN_ACTIVE`**   | Start countdown in progress          | Show countdown; wait              |
+| Code                     | Meaning                             | Client Action                    |
+| ------------------------ | ----------------------------------- | -------------------------------- |
+| `BAD_VERSION`            | Protocol mismatch                   | Prompt update                    |
+| `ROOM_NOT_FOUND`         | Room invalid/expired                | Back to menu                     |
+| `ROOM_FULL`              | Max players reached                 | Try another room                 |
+| `NAME_TAKEN`             | Display name used                   | Rename                           |
+| `INVALID_STATE`          | Malformed payload/state             | Log; resync                      |
+| `INVALID_TICK`           | Input tick outside window           | Resync clock                     |
+| `RATE_LIMITED`           | Rate limits exceeded                | Back off                         |
+| `UNAUTHORIZED`           | Missing/invalid token               | Re-auth / rejoin                 |
+| `SLOW_CONSUMER`          | Client can’t keep up                | Reduce graphics / reconnect      |
+| `ROOM_CLOSED`            | Room ended                          | Exit                             |
+| `INTERNAL`               | Server error                        | Retry/backoff                    |
+| **`NOT_MASTER`**         | Member attempted master-only action | Show error; disable start        |
+| **`ROOM_STATE_INVALID`** | Action not allowed in current state | Stay in lobby / handle per state |
+| **`ROOM_NOT_READY`**     | Ready requirement unmet             | Show readiness UI                |
+| **`START_ALREADY`**      | Start already triggered             | Ignore duplicate                 |
+| **`COUNTDOWN_ACTIVE`**   | Countdown already in progress       | Show countdown; wait             |
 
 ---
 
 ## 14. Reconnect & Lifecycle
 
-* Client stores `{ playerId, resumeToken, lastAckTick }`.
-* On loss:
-
-  1. Reopen WSS (new `wsToken` if expired).
-  2. Send `reconnect`.
-  3. Server replies with latest **full** snapshot; resume.
-* **Grace**: server keeps player alive for **10 s**.
-* Backgrounding (mobile): pause inputs; auto-resume ≤ 10 s.
+* Client stores `{playerId, resumeToken, lastAckTick}`.
+* On loss: reopen WS (refresh `wsToken` if needed) → send **`reconnect`** → server sends **full snapshot** and resumes.
+* Grace: keep player alive **10 s**.
+* Background (mobile): pause inputs; auto-resume ≤10 s.
 
 ---
 
 ## 15. Security
 
-* **TLS** for prod (`https://`, `wss://`).
-* Clients send **inputs only**; never authoritative positions.
-* Short-lived **`wsToken`**; don’t log secrets.
+* **TLS** in prod (`https://`, `wss://`).
+* Clients send **inputs only**, never authoritative positions.
+* Short-lived **`wsToken`**; never log tokens.
 * `resumeToken` opaque ≥128 bits.
-* Abuse prevention on room creation (rate limits, CAPTCHA as needed).
+* Abuse protection for room creation (rate limit/CAPTCHA).
 
 ---
 
 ## 16. Compression & Payload Targets
 
 * Negotiate **permessage-deflate**.
-* Quantize floats to **1 decimal** on the wire; keep higher precision in sim.
+* Quantize floats to **1 decimal** **on the wire**; keep higher precision in sim.
 * Target snapshot (delta, 4 players) **≤ 1.0 KB**; periodic full **≤ 2.0 KB**.
-* Prefer `input_batch` to cut packet rate.
+* Prefer `input_batch`.
 
 ---
 
 ## 17. Determinism & World Generation
 
-* Deterministic arithmetic: fixed-point **Q16.16** or consistent **double**; avoid platform intrinsics.
-* RNG: **SplitMix64** or **Xoroshiro128**** seeded from `seed` (decimal string).
-* World gen depends **only** on `(seed, tick)`.
-* Moving platforms use **closed-form** per tick:
+* Deterministic arithmetic: fixed-point **Q16.16** or consistent **double**.
+* RNG: **SplitMix64** / **Xoroshiro128**** seeded from `seed` (decimal string).
+* World gen depends only on `(seed, tick)`.
+* Moving platforms: closed-form
   `x(t)=x0 + A * sin((2π/periodTicks)*t + phase)` (no drift).
-* Collision order/broadphase identical on client & server.
+* Collision order/broadphase identical client & server.
 
 ---
 
 ## 18. Examples
 
-### 18.1 Minimal input batch
+### 18.1 Input batch
 
 ```json
 {"type":"input_batch","pv":1,"seq":183,"ts":1737766,
@@ -505,42 +426,52 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
             "players":[{"id":"p_abcd","x":321.1,"y":1120.5,"vx":9.0,"vy":1180.0}]}}
 ```
 
-### 18.3 Lobby → Countdown → Start
+### 18.3 Lobby → Countdown → Start (with roster)
 
 ```json
-{"type":"lobby_state","pv":1,"seq":50,"ts":1737766,"payload":{"roomState":"lobby","players":[{"id":"p1","name":"bene","ready":true,"role":"master"},{"id":"p2","name":"ally","ready":true,"role":"member"}]}}
-{"type":"start_countdown","pv":1,"seq":60,"ts":1737767,"payload":{"startAtMs":1737765123456,"serverTick":12000,"countdownSec":3}}
-{"type":"start","pv":1,"seq":61,"ts":1737767,"payload":{"startTick":300,"serverTick":12042,"serverTimeMs":1737765123456,"tps":60,"players":[{"id":"p1","name":"bene","role":"master","ready":true,"characterId":"aurora"},{"id":"p2","name":"ally","role":"member","ready":true,"characterId":"cobalt"}]}}
+{"type":"lobby_state","pv":1,"seq":50,"ts":1737766,
+ "payload":{"roomState":"lobby","players":[{"id":"p1","name":"bene","ready":true,"role":"master","characterId":"aurora"},
+                                           {"id":"p2","name":"ally","ready":true,"role":"member","characterId":"cobalt"}]}}
+{"type":"start_countdown","pv":1,"seq":60,"ts":1737767,
+ "payload":{"startAtMs":1737765123456,"serverTick":12000,"countdownSec":3}}
+{"type":"start","pv":1,"seq":61,"ts":1737767,
+ "payload":{"startTick":300,"serverTick":12042,"serverTimeMs":1737765123456,"tps":60,
+            "players":[{"id":"p1","name":"bene","role":"master","ready":true,"characterId":"aurora"},
+                       {"id":"p2","name":"ally","role":"member","ready":true,"characterId":"cobalt"}]}}
 ```
 
 ---
 
 ## 19. Test Matrix (key cases)
 
-* **Determinism:** same `seed` + scripted inputs for 10k ticks (ARM64 vs x86_64) → **bit-equal** world hash every 1k ticks.
+* **Determinism:** same seed + scripted inputs for 10k ticks (ARM64 vs x86_64) → bit-equal world hash every 1k ticks.
 * **Cadence:** `input_batch` 20–30 Hz; `snapshot` 10 Hz; 10 min run; drift ≤ 0.5 px at snapshot tick.
 * **Clock jitter:** ±200 ms skew; 0–120 ms jitter; 2% dup frames → no rubber-banding > 1.5 tiles.
-* **Reconnect:** drop 3 s; reconnect; reconcile < 500 ms visual latency.
+* **Reconnect:** drop 3 s; reconnect; full snapshot; reconcile < 500 ms.
 * **Slow consumer:** throttle downstream to 8 KB/s for 5 s → maintained; latest snapshot delivered; no crash.
-* **Lobby start:** two clients, master starts; both receive countdown & start; member cannot start (gets `NOT_MASTER`).
+* **Lobby start:** two clients; master starts; both receive rostered `start` + immediate full snapshot (players==2).
 * **Master transfer:** master disconnects in lobby → `role_changed`; new master can start.
+* **Character selection:** changes reflected in `lobby_state` and preserved into `start.players`.
 
 ---
 
 ## 20. Change Log
 
+* **v1.2.1 (this doc)**
+
+  * **Clarified** `start` must include **full roster** (`players: LobbyPlayer[]`).
+  * **Mandated** a **full snapshot** immediately after `start`, plus at least once per second and on reconnect.
+  * **Clarified** snapshots are **broadcast** and must contain **all alive players** (full) or all changed players (delta).
+  * Formalized `character_select` C2S and `characterId` propagation in lobby/start.
+  * No change to `pv` (still `1`).
+
 * **v1.2**
 
-  * Added **Room Master + Lobby** flow (REST `/start`, optional WS `start_request`).
-  * New S2C: `lobby_state`, `start_countdown`, `role_changed`; `welcome` extended with `role`, `roomState`, `lobby`.
-  * New C2S: `character_select`; lobby players now advertise optional `characterId`.
-  * `start` frames include the full lobby roster (id, name, role, ready, `characterId`).
-  * Added errors: `NOT_MASTER`, `ROOM_STATE_INVALID`, `ROOM_NOT_READY`, `START_ALREADY`, `COUNTDOWN_ACTIVE`.
-  * Clarified local `ws://`/`http://` allowances; compression “recommended” vs “required”.
+  * Lobby + room master flow; countdown start; lobby_state/role_changed.
 
 * **v1.1**
 
-  * Core realtime (input/snapshot), reconciliation, determinism contract.
+  * Core realtime input/snapshot and reconciliation contract.
 
 ---
 
@@ -549,40 +480,30 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
 ```ts
 type Pv = 1;
 
-interface Envelope<T> {
-  type: string; pv: Pv; seq: number; ts: number; payload: T;
-}
+interface Envelope<T> { type: string; pv: Pv; seq: number; ts: number; payload: T; }
 
-// ----- REST responses (subset) -----
+// ----- REST responses -----
 interface RestCreateRoomRes {
-  roomId: string; seed: string; region: string;
-  wsUrl: string; wsToken: string;
-  role: "master" | "member"; state: "lobby" | "starting" | "running" | "finished";
-  maxPlayers: number;
+  roomId: string; seed: string; region: string; wsUrl: string; wsToken: string;
+  role: "master" | "member"; state: "lobby" | "starting" | "running" | "finished"; maxPlayers: number;
 }
 interface RestJoinRoomRes extends Omit<RestCreateRoomRes, "seed"|"maxPlayers"> {}
 
 // ----- Client → Server -----
 interface C2S_Join { name: string; clientVersion: string; device?: string;
   capabilities?: { tilt: boolean; vibrate: boolean }; }
-
 interface C2S_Input { tick: number; axisX: number; jump?: boolean; shoot?: boolean; checksum?: string; }
 interface C2S_InputBatch { startTick: number; frames: Array<{ d: number; axisX: number; jump?: boolean; shoot?: boolean }>; }
 interface C2S_Ping { t0: number; }
 interface C2S_Reconnect { playerId: string; resumeToken: string; lastAckTick: number; }
-interface C2S_CharacterSelect { characterId: string; }
-interface C2S_ReadySet { ready: boolean; }               // optional
-interface C2S_StartRequest { countdownSec?: number; }    // optional
+interface C2S_ReadySet { ready: boolean; }                    // optional
+interface C2S_StartRequest { countdownSec?: number; }         // optional
+interface C2S_CharacterSelect { characterId: string; }        // optional
 
-// ----- Server → Client -----
+// ----- Shared -----
 interface LobbyPlayer {
-  id: string;
-  name: string;
-  ready: boolean;
-  role: "master" | "member";
-  characterId?: string;
+  id: string; name: string; ready: boolean; role: "master" | "member"; characterId?: string;
 }
-
 interface NetWorldCfg {
   worldWidth: number; platformWidth: number; platformHeight: number;
   gapMin: number; gapMax: number; gravity: number; jumpVy: number; springVy: number; maxVx: number; tiltAccel: number;
@@ -595,6 +516,7 @@ interface NetConfig {
   world: NetWorldCfg; difficulty: NetDifficultyCfg;
 }
 
+// ----- Server → Client -----
 interface S2C_Welcome {
   playerId: string; resumeToken: string; roomId: string; seed: string;
   role: "master" | "member";
@@ -604,16 +526,12 @@ interface S2C_Welcome {
 }
 interface S2C_LobbyState {
   roomState: "lobby" | "starting" | "running" | "finished";
-  players: LobbyPlayer[];
-  maxPlayers?: number;
+  players: LobbyPlayer[]; maxPlayers?: number;
 }
 interface S2C_StartCountdown { startAtMs: number; serverTick: number; countdownSec: number; }
 interface S2C_Start {
-  startTick: number;
-  serverTick: number;
-  serverTimeMs: number;
-  tps: number;
-  players: LobbyPlayer[];
+  startTick: number; serverTick: number; serverTimeMs: number; tps: number;
+  players: LobbyPlayer[]; // REQUIRED
 }
 
 interface NetPlayer { id: string; x: number; y: number; vx: number; vy: number; alive: boolean; }
@@ -624,7 +542,6 @@ interface S2C_Snapshot {
   players: Partial<NetPlayer>[] & { [0]: { id: string } };
   events?: NetEvent[]; stats?: { droppedSnapshots?: number };
 }
-
 interface S2C_Pong { t0: number; t1: number; }
 interface S2C_Error { code: string; message?: string; }
 interface S2C_Finish { reason: "room_closed" | "timeout" | "error"; }
