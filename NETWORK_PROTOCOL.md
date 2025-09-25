@@ -130,8 +130,18 @@ POST /v1/rooms/{roomId}/join
 
 ```http
 POST /v1/rooms/{roomId}/leave
+{ "playerId": "p01", "reason": "left voluntarily" }  // reason optional
 → 204
 ```
+
+*Request body*
+
+| Field | Type   | Required | Notes |
+|-------|--------|----------|-------|
+| `playerId` | `string` | ✅ | Must match the authenticated player for the supplied `wsToken`. |
+| `reason` | `string` | ❌ | Optional free-form context (e.g., `"left voluntarily"`, `"disconnected"`). |
+
+Clients must always include the `playerId`. The server validates it against the room membership that was bound when the `wsToken` was issued. Omitting or mismatching the `playerId` results in `422 Unprocessable Entity` with an error such as `missing field "playerId"`.
 
 ### 5.4 Status
 
