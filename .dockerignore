@@ -1,0 +1,11 @@
+.git
+.gitignore
+.dockerignore
+.target
+target
+**/target
+**/*.rs.bk
+**/*.log
+NETWORK_PROTOCOL.md
+README.md
+tests/
