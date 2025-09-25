@@ -3,8 +3,9 @@ use crate::{
     errors::{AppError, ErrorCode, WireError},
     http::HttpState,
     proto::{
-        ClientInput, ClientInputBatch, ClientJoin, ClientPing, ClientReadySet, ClientReconnect,
-        ClientStartRequest, Envelope, PongPayload, ServerFrame, PROTOCOL_VERSION,
+        ClientCharacterSelect, ClientInput, ClientInputBatch, ClientJoin, ClientPing,
+        ClientReadySet, ClientReconnect, ClientStartRequest, Envelope, PongPayload, ServerFrame,
+        PROTOCOL_VERSION,
     },
     util,
 };
@@ -377,6 +378,30 @@ async fn handle_socket(stream: tokio::net::TcpStream, state: Arc<HttpState>) -> 
                         countdown,
                         state.config.require_ready,
                     )
+                    .await
+                {
+                    send_app_error(&state, &claims.room_id, &queue, err).await;
+                }
+            }
+            "character_select" => {
+                let payload: ClientCharacterSelect =
+                    match serde_json::from_value(raw_env.payload.clone()) {
+                        Ok(p) => p,
+                        Err(err) => {
+                            send_error(
+                                &state,
+                                &claims.room_id,
+                                &queue,
+                                ErrorCode::InvalidState,
+                                err.to_string(),
+                            )
+                            .await;
+                            continue;
+                        }
+                    };
+                if let Err(err) = state
+                    .lobby
+                    .set_character(&claims.room_id, &claims.player_id, payload.character_id)
                     .await
                 {
                     send_app_error(&state, &claims.room_id, &queue, err).await;

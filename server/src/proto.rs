@@ -127,6 +127,13 @@ pub struct ClientStartRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ClientCharacterSelect {
+    #[serde(default)]
+    pub character_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientFrame {
     Join {
@@ -157,6 +164,10 @@ pub enum ClientFrame {
         #[serde(flatten)]
         meta: Envelope<ClientStartRequest>,
     },
+    CharacterSelect {
+        #[serde(flatten)]
+        meta: Envelope<ClientCharacterSelect>,
+    },
 }
 
 impl ClientFrame {
@@ -169,6 +180,7 @@ impl ClientFrame {
             ClientFrame::Reconnect { meta } => meta.seq,
             ClientFrame::ReadySet { meta } => meta.seq,
             ClientFrame::StartRequest { meta } => meta.seq,
+            ClientFrame::CharacterSelect { meta } => meta.seq,
         }
     }
 
@@ -181,6 +193,7 @@ impl ClientFrame {
             ClientFrame::Reconnect { .. } => "reconnect",
             ClientFrame::ReadySet { .. } => "ready_set",
             ClientFrame::StartRequest { .. } => "start_request",
+            ClientFrame::CharacterSelect { .. } => "character_select",
         }
     }
 }
@@ -226,6 +239,8 @@ pub struct LobbyPlayer {
     pub role: String,
     #[serde(default)]
     pub ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub character_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
