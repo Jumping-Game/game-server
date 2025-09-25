@@ -255,7 +255,7 @@ impl Matchmaker {
     pub fn status(&self) -> StatusResponse {
         let samples = self.latency_samples.load(Ordering::Relaxed);
         let avg_ping = if samples == 0 {
-            (1000 / self.config.snapshot_rate_hz.max(1)) as u32
+            1000 / self.config.snapshot_rate_hz.max(1)
         } else {
             let sum = self.latency_sum_ms.load(Ordering::Relaxed);
             (sum / samples.max(1)) as u32
