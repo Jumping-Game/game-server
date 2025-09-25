@@ -252,6 +252,7 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
 ```json
 {"type":"ready_set","pv":1,"seq":9,"ts":1737765,"payload":{"ready":true}}
 {"type":"start_request","pv":1,"seq":10,"ts":1737765,"payload":{"countdownSec":3}}
+{"type":"character_select","pv":1,"seq":11,"ts":1737765,"payload":{"characterId":"violet"}}
 ```
 
 ---
@@ -271,7 +272,7 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
     "role":"master",
     "roomState":"lobby",
     "lobby":{
-      "players":[{"id":"p_abcd","name":"bene","ready":true,"role":"master"}],
+      "players":[{"id":"p_abcd","name":"bene","ready":true,"role":"master","characterId":"aurora"}],
       "maxPlayers":4
     },
     "cfg":{ "tps":60,"snapshotRateHz":10,"maxRollbackTicks":120,"inputLeadTicks":2,
@@ -292,8 +293,8 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
   "payload":{
     "roomState":"lobby",
     "players":[
-      {"id":"p_abcd","name":"bene","ready":true,"role":"master"},
-      {"id":"p_efgh","name":"ally","ready":false,"role":"member"}
+      {"id":"p_abcd","name":"bene","ready":true,"role":"master","characterId":"aurora"},
+      {"id":"p_efgh","name":"ally","ready":false,"role":"member","characterId":"cobalt"}
     ]
   }
 }
@@ -522,6 +523,7 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
 
   * Added **Room Master + Lobby** flow (REST `/start`, optional WS `start_request`).
   * New S2C: `lobby_state`, `start_countdown`, `role_changed`; `welcome` extended with `role`, `roomState`, `lobby`.
+  * New C2S: `character_select`; lobby players now advertise optional `characterId`.
   * Added errors: `NOT_MASTER`, `ROOM_STATE_INVALID`, `ROOM_NOT_READY`, `START_ALREADY`, `COUNTDOWN_ACTIVE`.
   * Clarified local `ws://`/`http://` allowances; compression “recommended” vs “required”.
 
@@ -557,11 +559,18 @@ interface C2S_Input { tick: number; axisX: number; jump?: boolean; shoot?: boole
 interface C2S_InputBatch { startTick: number; frames: Array<{ d: number; axisX: number; jump?: boolean; shoot?: boolean }>; }
 interface C2S_Ping { t0: number; }
 interface C2S_Reconnect { playerId: string; resumeToken: string; lastAckTick: number; }
+interface C2S_CharacterSelect { characterId: string; }
 interface C2S_ReadySet { ready: boolean; }               // optional
 interface C2S_StartRequest { countdownSec?: number; }    // optional
 
 // ----- Server → Client -----
-interface LobbyPlayer { id: string; name: string; ready: boolean; role: "master" | "member"; }
+interface LobbyPlayer {
+  id: string;
+  name: string;
+  ready: boolean;
+  role: "master" | "member";
+  characterId?: string;
+}
 
 interface NetWorldCfg {
   worldWidth: number; platformWidth: number; platformHeight: number;
@@ -582,7 +591,11 @@ interface S2C_Welcome {
   lobby?: { players: LobbyPlayer[]; maxPlayers: number; };
   cfg: NetConfig; featureFlags?: Record<string, boolean>;
 }
-interface S2C_LobbyState { roomState: "lobby" | "starting" | "running" | "finished"; players: LobbyPlayer[]; }
+interface S2C_LobbyState {
+  roomState: "lobby" | "starting" | "running" | "finished";
+  players: LobbyPlayer[];
+  maxPlayers?: number;
+}
 interface S2C_StartCountdown { startAtMs: number; serverTick: number; countdownSec: number; }
 interface S2C_Start { startTick: number; serverTick: number; serverTimeMs: number; tps: number; }
 
