@@ -359,7 +359,7 @@ impl Lobby {
         let seq = room.next_seq();
         let state = room.lobby_state();
         let frame = ServerFrame::LobbyState {
-            meta: Envelope::new("lobby_state", seq, state),
+            meta: Envelope::boxed("lobby_state", seq, state),
         };
         let sim = room.sim.clone();
         let player_id = player.id.clone();
@@ -381,7 +381,7 @@ impl Lobby {
                     if let Some(new_master_id) = room.transfer_master() {
                         let seq = room.next_seq();
                         frames.push(ServerFrame::RoleChanged {
-                            meta: Envelope::new(
+                            meta: Envelope::boxed(
                                 "role_changed",
                                 seq,
                                 RoleChangedPayload {
@@ -393,7 +393,7 @@ impl Lobby {
                 }
                 let seq = room.next_seq();
                 frames.push(ServerFrame::LobbyState {
-                    meta: Envelope::new("lobby_state", seq, room.lobby_state()),
+                    meta: Envelope::boxed("lobby_state", seq, room.lobby_state()),
                 });
                 for frame in frames.clone() {
                     room.broadcast(frame).await;
@@ -426,7 +426,7 @@ impl Lobby {
         let state = room.lobby_state();
         let seq = room.next_seq();
         let frame = ServerFrame::LobbyState {
-            meta: Envelope::new("lobby_state", seq, state.clone()),
+            meta: Envelope::boxed("lobby_state", seq, state.clone()),
         };
         room.broadcast(frame).await;
         Ok(state)
@@ -456,7 +456,7 @@ impl Lobby {
         let payload = room.start_countdown(countdown_sec)?;
         let seq = room.next_seq();
         let frame = ServerFrame::StartCountdown {
-            meta: Envelope::new("start_countdown", seq, payload.clone()),
+            meta: Envelope::boxed("start_countdown", seq, payload.clone()),
         };
         let sim = room.sim.clone();
         let start_at = payload.start_at_ms;
@@ -472,7 +472,7 @@ impl Lobby {
                 let start_payload = guard.set_running();
                 let seq = guard.next_seq();
                 let frame = ServerFrame::Start {
-                    meta: Envelope::new("start", seq, start_payload.clone()),
+                    meta: Envelope::boxed("start", seq, start_payload.clone()),
                 };
                 guard.broadcast(frame).await;
                 drop(guard);
@@ -519,11 +519,11 @@ impl Lobby {
         let lobby_state = room.lobby_state();
         let lobby_seq = room.next_seq();
         let lobby_frame = ServerFrame::LobbyState {
-            meta: Envelope::new("lobby_state", lobby_seq, lobby_state),
+            meta: Envelope::boxed("lobby_state", lobby_seq, lobby_state),
         };
         Ok(AttachResult {
             welcome: ServerFrame::Welcome {
-                meta: Envelope::new("welcome", seq, payload),
+                meta: Envelope::boxed("welcome", seq, payload),
             },
             lobby: lobby_frame,
             sim: room.sim.clone(),

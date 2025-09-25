@@ -196,7 +196,7 @@ async fn sim_loop(_room_id: String, mut rx: mpsc::Receiver<SimCommand>) {
                             stats: SnapshotStats { dropped_snapshots: 0 },
                         };
                         let frame = ServerFrame::Snapshot {
-                            meta: Envelope::new("snapshot", seq, payload),
+                            meta: Envelope::boxed("snapshot", seq, payload),
                         };
                         room_guard.broadcast(frame).await;
                     }

@@ -51,9 +51,11 @@ impl WsServer {
 async fn handle_socket(stream: tokio::net::TcpStream, state: Arc<HttpState>) -> anyhow::Result<()> {
     let holder = Arc::new(Mutex::new(None));
     let callback_holder = holder.clone();
-    let mut config = WebSocketConfig::default();
-    config.max_message_size = Some(4 * 1024);
-    config.max_frame_size = Some(4 * 1024);
+    let config = WebSocketConfig {
+        max_message_size: Some(4 * 1024),
+        max_frame_size: Some(4 * 1024),
+        ..Default::default()
+    };
     let ws_stream = accept_hdr_async_with_config(
         stream,
         {
@@ -223,7 +225,7 @@ async fn handle_socket(stream: tokio::net::TcpStream, state: Arc<HttpState>) -> 
                     t1: util::now_ms(),
                 };
                 let frame = ServerFrame::Pong {
-                    meta: Envelope::new("pong", seq, payload),
+                    meta: Envelope::boxed("pong", seq, payload),
                 };
                 queue.push(frame).await;
             }
@@ -443,7 +445,7 @@ async fn send_error(
     let seq = next_seq(state, room_id).await;
     let payload = WireError::new(code, message);
     let frame = ServerFrame::Error {
-        meta: Envelope::new("error", seq, payload),
+        meta: Envelope::boxed("error", seq, payload),
     };
     queue.push(frame).await;
 }
@@ -457,7 +459,7 @@ async fn send_app_error(
     let seq = next_seq(state, room_id).await;
     let payload = err.wire();
     let frame = ServerFrame::Error {
-        meta: Envelope::new("error", seq, payload),
+        meta: Envelope::boxed("error", seq, payload),
     };
     queue.push(frame).await;
 }

@@ -27,6 +27,10 @@ impl<T> Envelope<T> {
             payload,
         }
     }
+
+    pub fn boxed(kind: impl Into<String>, seq: u64, payload: T) -> Box<Self> {
+        Box::new(Self::new(kind, seq, payload))
+    }
 }
 
 pub fn env<T: DeserializeOwned>(text: &str) -> Result<Envelope<T>, WireError> {
@@ -314,43 +318,43 @@ pub struct FinishPayload {
 pub enum ServerFrame {
     Welcome {
         #[serde(flatten)]
-        meta: Envelope<WelcomePayload>,
+        meta: Box<Envelope<WelcomePayload>>,
     },
     LobbyState {
         #[serde(flatten)]
-        meta: Envelope<LobbyState>,
+        meta: Box<Envelope<LobbyState>>,
     },
     StartCountdown {
         #[serde(flatten)]
-        meta: Envelope<StartCountdownPayload>,
+        meta: Box<Envelope<StartCountdownPayload>>,
     },
     Start {
         #[serde(flatten)]
-        meta: Envelope<StartPayload>,
+        meta: Box<Envelope<StartPayload>>,
     },
     Snapshot {
         #[serde(flatten)]
-        meta: Envelope<SnapshotPayload>,
+        meta: Box<Envelope<SnapshotPayload>>,
     },
     RoleChanged {
         #[serde(flatten)]
-        meta: Envelope<RoleChangedPayload>,
+        meta: Box<Envelope<RoleChangedPayload>>,
     },
     Pong {
         #[serde(flatten)]
-        meta: Envelope<PongPayload>,
+        meta: Box<Envelope<PongPayload>>,
     },
     PlayerPresence {
         #[serde(flatten)]
-        meta: Envelope<PlayerPresencePayload>,
+        meta: Box<Envelope<PlayerPresencePayload>>,
     },
     Finish {
         #[serde(flatten)]
-        meta: Envelope<FinishPayload>,
+        meta: Box<Envelope<FinishPayload>>,
     },
     Error {
         #[serde(flatten)]
-        meta: Envelope<WireError>,
+        meta: Box<Envelope<WireError>>,
     },
 }
 

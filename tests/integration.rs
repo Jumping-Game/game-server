@@ -24,13 +24,15 @@ async fn spawn_server() -> (Config, oneshot::Sender<()>, tokio::task::JoinHandle
         .try_init();
     let api_port = find_port().await;
     let ws_port = find_port().await;
-    let mut config = Config::default();
-    config.api_port = api_port;
-    config.ws_port = ws_port;
-    config.api_bind = format!("127.0.0.1:{api_port}");
-    config.ws_bind = format!("127.0.0.1:{ws_port}");
-    config.jwt_secret = "test-secret".into();
-    config.enable_permessage_deflate = false;
+    let config = Config {
+        api_port,
+        ws_port,
+        api_bind: format!("127.0.0.1:{api_port}"),
+        ws_bind: format!("127.0.0.1:{ws_port}"),
+        jwt_secret: "test-secret".into(),
+        enable_permessage_deflate: false,
+        ..Config::default()
+    };
     let state = Arc::new(http::HttpState::new(config.clone()));
     let router = http::router(state.clone());
 
