@@ -14,7 +14,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY server/Cargo.toml server/Cargo.toml
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
-    cargo fetch -p server --locked
+    cargo fetch --locked --manifest-path server/Cargo.toml
 
 # Copy the actual source last so dependency layers stay cached
 COPY server ./server
