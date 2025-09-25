@@ -195,7 +195,8 @@ impl OutboundMessage {
 pub struct JoinPayload {
     pub name: String,
     pub client_version: String,
-    pub device: String,
+    #[serde(default)]
+    pub device: Option<String>,
     #[serde(default)]
     pub capabilities: HashMap<String, bool>,
 }
@@ -357,8 +358,6 @@ pub struct SnapshotStats {
 pub struct PongPayload {
     pub t0: u64,
     pub t1: u64,
-    #[serde(default)]
-    pub t2: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

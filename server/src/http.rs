@@ -10,8 +10,9 @@ use crate::{
 };
 use axum::{
     extract::{Path, State},
+    headers::{authorization::Bearer, Authorization},
     routing::{get, post},
-    Json, Router,
+    Json, Router, TypedHeader,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -54,7 +55,7 @@ async fn create_room(
     State(state): State<Arc<HttpState>>,
     Json(request): Json<CreateRoomRequest>,
 ) -> Result<(axum::http::StatusCode, Json<CreateRoomResponse>), ServerError> {
-    let bootstrap = state.matchmaker.create_room(request)?;
+    let bootstrap = state.matchmaker.create_room(request).await?;
     Ok((axum::http::StatusCode::CREATED, Json(bootstrap)))
 }
 
@@ -68,15 +69,26 @@ async fn join_room(
     State(state): State<Arc<HttpState>>,
     Json(request): Json<JoinRoomRequest>,
 ) -> Result<Json<JoinRoomResponse>, ServerError> {
-    let bootstrap = state.matchmaker.join_room(&path.room_id, request)?;
+    let bootstrap = state.matchmaker.join_room(&path.room_id, request).await?;
     Ok(Json(bootstrap))
 }
 
 async fn leave_room(
     Path(path): Path<JoinPath>,
     State(state): State<Arc<HttpState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
 ) -> Result<axum::http::StatusCode, ServerError> {
-    state.matchmaker.leave_room(&path.room_id, "placeholder");
+    let claims = state.token_issuer.verify_ws_token(auth.token())?;
+    if claims.room_id != path.room_id {
+        return Err(ServerError::new(
+            crate::errors::ErrorCode::Unauthorized,
+            "token does not match room",
+        ));
+    }
+    state
+        .matchmaker
+        .leave_room(&path.room_id, &claims.player_id)
+        .await;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 

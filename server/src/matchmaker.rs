@@ -3,12 +3,16 @@ use crate::{
     config::Config,
     errors::{ErrorCode, ServerError},
     protocol::{RoomSeed, SERVER_PV},
+    room::{RoomConfig, RoomRuntime},
 };
 use dashmap::{DashMap, DashSet};
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 use tokio::sync::RwLock;
 
 #[derive(Clone)]
@@ -16,9 +20,10 @@ pub struct Matchmaker {
     rooms: Arc<DashMap<String, Arc<RoomEntry>>>,
     token_issuer: TokenIssuer,
     config: Config,
+    latency_sum_ms: Arc<AtomicU64>,
+    latency_samples: Arc<AtomicU64>,
 }
 
-#[derive(Debug)]
 pub struct RoomEntry {
     pub room_id: String,
     pub seed: RoomSeed,
@@ -26,6 +31,7 @@ pub struct RoomEntry {
     pub players: DashMap<String, PlayerRecord>,
     pub names: DashSet<String>,
     pub resume_tokens: Arc<RwLock<HashMap<String, String>>>,
+    pub runtime: Arc<RoomRuntime>,
 }
 
 #[derive(Debug, Clone)]
@@ -87,10 +93,12 @@ impl Matchmaker {
             rooms: Arc::new(DashMap::new()),
             token_issuer,
             config,
+            latency_sum_ms: Arc::new(AtomicU64::new(0)),
+            latency_samples: Arc::new(AtomicU64::new(0)),
         }
     }
 
-    pub fn create_room(
+    pub async fn create_room(
         &self,
         request: CreateRoomRequest,
     ) -> Result<CreateRoomResponse, ServerError> {
@@ -117,6 +125,17 @@ impl Matchmaker {
 
         let room_id = self.generate_room_id();
         let seed = RoomSeed::random();
+        let room_config = RoomConfig {
+            max_rollback_ticks: self.config.max_rollback_ticks,
+            input_lead_ticks: self.config.input_lead_ticks,
+        };
+        let runtime = RoomRuntime::new(
+            room_id.clone(),
+            seed.as_u64(),
+            room_config,
+            self.config.tick_rate_hz,
+            self.config.snapshot_rate_hz,
+        );
         let entry = Arc::new(RoomEntry {
             room_id: room_id.clone(),
             seed,
@@ -124,24 +143,29 @@ impl Matchmaker {
             players: DashMap::new(),
             names: DashSet::new(),
             resume_tokens: Arc::new(RwLock::new(HashMap::new())),
+            runtime: runtime.clone(),
         });
         self.rooms.insert(room_id.clone(), entry.clone());
 
         let player_id = self.generate_player_id();
+        let host_name = request.name.clone();
         entry.players.insert(
             player_id.clone(),
             PlayerRecord {
-                name: request.name.clone(),
+                name: host_name.clone(),
             },
         );
-        entry.names.insert(request.name);
+        entry.names.insert(host_name.clone());
         let ws_token = match self
             .token_issuer
             .mint_ws_token(WsTokenClaims::new(room_id.clone(), player_id.clone()))
         {
             Ok(token) => token,
             Err(err) => {
+                entry.players.remove(&player_id);
+                entry.names.remove(&host_name);
                 self.rooms.remove(&room_id);
+                runtime.shutdown().await;
                 return Err(ServerError::with_source(
                     ErrorCode::Internal,
                     "failed to mint token",
@@ -149,6 +173,7 @@ impl Matchmaker {
                 ));
             }
         };
+        runtime.register_player(&player_id).await;
         Ok(CreateRoomResponse {
             room_id,
             seed,
@@ -158,7 +183,7 @@ impl Matchmaker {
         })
     }
 
-    pub fn join_room(
+    pub async fn join_room(
         &self,
         room_id: &str,
         request: JoinRoomRequest,
@@ -185,6 +210,7 @@ impl Matchmaker {
             },
         );
         entry.names.insert(player_name.clone());
+        let runtime = entry.runtime.clone();
         let ws_token = match self
             .token_issuer
             .mint_ws_token(WsTokenClaims::new(room_id.to_string(), player_id.clone()))
@@ -196,6 +222,8 @@ impl Matchmaker {
                 return Err(ServerError::new(ErrorCode::Unauthorized, "token error"));
             }
         };
+        drop(entry);
+        runtime.register_player(&player_id).await;
         Ok(JoinRoomResponse {
             room_id: room_id.to_string(),
             ws_url: self.config.ws_url.clone(),
@@ -203,22 +231,39 @@ impl Matchmaker {
         })
     }
 
-    pub fn leave_room(&self, room_id: &str, player_id: &str) {
+    pub async fn leave_room(&self, room_id: &str, player_id: &str) {
         if let Some(entry) = self.rooms.get(room_id) {
-            if let Some(record) = entry.players.remove(player_id) {
-                entry.names.remove(&record.1.name);
+            let runtime = entry.runtime.clone();
+            let removed = entry.players.remove(player_id);
+            let had_player = removed.is_some();
+            if let Some((_, record)) = removed.as_ref() {
+                entry.names.remove(&record.name);
             }
-            if entry.players.is_empty() {
-                self.rooms.remove(room_id);
+            let empty = entry.players.is_empty();
+            drop(entry);
+            if had_player {
+                runtime.deregister_player(player_id).await;
+            }
+            if empty {
+                if let Some((_, entry)) = self.rooms.remove(room_id) {
+                    entry.runtime.shutdown().await;
+                }
             }
         }
     }
 
     pub fn status(&self) -> StatusResponse {
+        let samples = self.latency_samples.load(Ordering::Relaxed);
+        let avg_ping = if samples == 0 {
+            1000 / self.config.snapshot_rate_hz.max(1)
+        } else {
+            let sum = self.latency_sum_ms.load(Ordering::Relaxed);
+            (sum / samples.max(1)) as u32
+        };
         StatusResponse {
             regions: vec![RegionStatus {
                 id: self.config.region.clone(),
-                ping_ms: 0,
+                ping_ms: avg_ping.max(1),
                 ws_url: self.config.ws_url.clone(),
             }],
             server_pv: SERVER_PV,
@@ -281,5 +326,14 @@ impl Matchmaker {
                 .get(player_id)
                 .map(|record| record.name.clone())
         })
+    }
+
+    pub fn room_runtime(&self, room_id: &str) -> Option<Arc<RoomRuntime>> {
+        self.rooms.get(room_id).map(|entry| entry.runtime.clone())
+    }
+
+    pub fn record_latency_sample(&self, millis: u64) {
+        self.latency_sum_ms.fetch_add(millis, Ordering::Relaxed);
+        self.latency_samples.fetch_add(1, Ordering::Relaxed);
     }
 }

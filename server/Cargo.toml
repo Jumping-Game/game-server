@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-axum = { version = "0.6", features = ["macros", "ws"] }
+axum = { version = "0.6", features = ["macros", "ws", "headers"] }
 base64 = "0.21"
 dashmap = "5"
 hmac = "0.12"
@@ -27,7 +27,7 @@ regex = { version = "1", default-features = false, features = ["std", "unicode",
 futures-util = "0.3"
 
 [dev-dependencies]
-axum = { version = "0.6", features = ["macros", "ws"] }
+axum = { version = "0.6", features = ["macros", "ws", "headers"] }
 insta = "1"
 proptest = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }
