@@ -110,8 +110,10 @@ async fn rest_create_room_validates_inputs() {
 
 #[tokio::test]
 async fn rest_join_room_enforces_capacity_and_name_rules() {
-    let mut config = Config::default();
-    config.room_capacity = 2;
+    let config = Config {
+        room_capacity: 2,
+        ..Config::default()
+    };
     let state = HttpState::new(config.clone());
     let app = http::router(state.clone());
 
