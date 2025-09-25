@@ -28,11 +28,12 @@ async fn create_and_join_room() {
     let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
     let bootstrap: server::matchmaker::CreateRoomResponse =
         serde_json::from_slice(&body_bytes).unwrap();
-    assert_eq!(bootstrap.seed.as_u64() > 0, true);
+    assert!(bootstrap.seed.as_u64() > 0);
 
     let join_uri = format!("/v1/rooms/{}/join", bootstrap.room_id);
     let join_body = serde_json::json!({ "name": "guest" });
     let response = app
+        .clone()
         .oneshot(
             axum::http::Request::builder()
                 .method(axum::http::Method::POST)
@@ -46,6 +47,7 @@ async fn create_and_join_room() {
     assert_eq!(response.status(), axum::http::StatusCode::OK);
 
     let status_resp = app
+        .clone()
         .oneshot(
             axum::http::Request::builder()
                 .method(axum::http::Method::GET)
@@ -56,7 +58,9 @@ async fn create_and_join_room() {
         .await
         .unwrap();
     assert_eq!(status_resp.status(), axum::http::StatusCode::OK);
-    let body_bytes = hyper::body::to_bytes(status_resp.into_body()).await.unwrap();
+    let body_bytes = hyper::body::to_bytes(status_resp.into_body())
+        .await
+        .unwrap();
     let status: server::matchmaker::StatusResponse = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(status.server_pv, SERVER_PV);
     assert_eq!(status.regions.len(), 1);

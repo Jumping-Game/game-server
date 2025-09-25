@@ -18,8 +18,8 @@ fn deterministic_simulation() {
         room_b.push_input("p1", input).unwrap();
         room_a.step();
         room_b.step();
-        let snap_a = room_a.snapshot(false);
-        let snap_b = room_b.snapshot(false);
+        let snap_a = room_a.snapshot_for_player("p1", true);
+        let snap_b = room_b.snapshot_for_player("p1", true);
         assert!((snap_a.players[0].y - snap_b.players[0].y).abs() < f32::EPSILON);
     }
 }
