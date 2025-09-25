@@ -45,6 +45,7 @@ pub struct Player {
     pub name: String,
     pub role: Role,
     pub ready: bool,
+    pub character_id: Option<String>,
     pub queue: Option<ConnectionQueue>,
     pub last_ack_tick: u64,
     pub last_input_seq: u64,
@@ -59,6 +60,7 @@ impl Player {
             name,
             role,
             ready: false,
+            character_id: None,
             queue: None,
             last_ack_tick: 0,
             last_input_seq: 0,
@@ -133,6 +135,7 @@ impl Room {
                     name: p.name.clone(),
                     role: p.role.as_str().to_string(),
                     ready: p.ready,
+                    character_id: p.character_id.clone(),
                 })
                 .collect(),
             max_players: self.max_players,
@@ -202,6 +205,27 @@ impl Room {
             ));
         };
         player.ready = ready;
+        Ok(())
+    }
+
+    pub fn set_character(
+        &mut self,
+        player_id: &str,
+        character_id: Option<String>,
+    ) -> Result<(), AppError> {
+        if !matches!(self.state, RoomState::Lobby) {
+            return Err(AppError::http(
+                ErrorCode::RoomStateInvalid,
+                "cannot change character now",
+            ));
+        }
+        let Some(player) = self.find_player_mut(player_id) else {
+            return Err(AppError::http(
+                ErrorCode::Unauthorized,
+                "player not in room",
+            ));
+        };
+        player.character_id = character_id;
         Ok(())
     }
 
@@ -423,6 +447,29 @@ impl Lobby {
         };
         let mut room = room_arc.write().await;
         room.set_ready(player_id, ready)?;
+        let state = room.lobby_state();
+        let seq = room.next_seq();
+        let frame = ServerFrame::LobbyState {
+            meta: Envelope::boxed("lobby_state", seq, state.clone()),
+        };
+        room.broadcast(frame).await;
+        Ok(state)
+    }
+
+    pub async fn set_character(
+        &self,
+        room_id: &str,
+        player_id: &str,
+        character_id: Option<String>,
+    ) -> Result<LobbyState, AppError> {
+        let Some(room_arc) = self.room(room_id).await else {
+            return Err(AppError::http(
+                ErrorCode::RoomStateInvalid,
+                "room not found",
+            ));
+        };
+        let mut room = room_arc.write().await;
+        room.set_character(player_id, character_id)?;
         let state = room.lobby_state();
         let seq = room.next_seq();
         let frame = ServerFrame::LobbyState {
