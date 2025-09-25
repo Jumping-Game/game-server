@@ -1,38 +1,39 @@
-use server::{config, http};
+use server::{config::Config, http, ws::WsServer};
 
 use anyhow::Context;
 use axum::Router;
+use std::sync::Arc;
 use tokio::signal;
 use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter, Registry};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config = config::Config::load().context("load config")?;
+    let config = Config::load().context("load config")?;
     init_tracing(&config);
 
-    let state = http::HttpState::new(config.clone());
+    let state = Arc::new(http::HttpState::new(config.clone()));
     let router: Router = http::router(state.clone());
+    let addr = config.api_bind.parse().context("invalid api bind")?;
 
-    let addr = config
-        .bind_address
-        .parse()
-        .context("invalid bind address")?;
-    tracing::info!("starting_http {}", addr);
-    let server = axum::Server::bind(&addr).serve(router.into_make_service());
+    let http_server = axum::Server::bind(&addr).serve(router.into_make_service());
+    let ws_server = WsServer::new(state.clone()).run();
 
     tokio::select! {
-        res = server => {
-            res.context("server error")?;
+        res = http_server => {
+            res.context("http server error")?;
+        }
+        res = ws_server => {
+            res.context("ws server error")?;
         }
         _ = shutdown_signal() => {
-            tracing::info!("shutdown_signal");
+            tracing::info!("shutdown");
         }
     }
 
     Ok(())
 }
 
-fn init_tracing(config: &config::Config) {
+fn init_tracing(config: &Config) {
     let filter = config
         .log_level
         .parse::<EnvFilter>()

@@ -1,13 +1,10 @@
 pub mod auth;
-pub mod backpressure;
+pub mod broadcaster;
 pub mod config;
 pub mod errors;
 pub mod http;
-pub mod matchmaker;
-pub mod metrics;
-pub mod presence;
-pub mod protocol;
-pub mod rate_limit;
-pub mod room;
+pub mod lobby;
+pub mod proto;
 pub mod sim;
+pub mod util;
 pub mod ws;

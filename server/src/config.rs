@@ -1,135 +1,93 @@
-use serde::Deserialize;
-use std::{env, fs, path::Path};
+use figment::{providers::Env, Figment};
+use serde::{Deserialize, Serialize};
 
-const DEFAULT_CONFIG_PATH: &str = "configs/server.example.toml";
-
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
-    #[serde(default = "default_bind_address")]
-    pub bind_address: String,
-    #[serde(default = "default_ws_url")]
-    pub ws_url: String,
+    #[serde(default = "default_api_port")]
+    pub api_port: u16,
+    #[serde(default = "default_ws_port")]
+    pub ws_port: u16,
+    #[serde(default = "default_bind")]
+    pub api_bind: String,
+    #[serde(default = "default_ws_bind")]
+    pub ws_bind: String,
+    #[serde(default = "default_jwt_secret")]
+    pub jwt_secret: String,
+    #[serde(default = "default_room_capacity")]
+    pub default_max_players: u32,
     #[serde(default = "default_region")]
     pub region: String,
+    #[serde(default = "default_enable_deflate")]
+    pub enable_permessage_deflate: bool,
+    #[serde(default = "default_ready_required")]
+    pub require_ready: bool,
     #[serde(default = "default_log_level")]
     pub log_level: String,
-    #[serde(default = "default_room_capacity")]
-    pub room_capacity: usize,
-    #[serde(default = "default_snapshot_rate")]
-    pub snapshot_rate_hz: u32,
-    #[serde(default = "default_tick_rate")]
-    pub tick_rate_hz: u32,
-    #[serde(default = "default_max_rollback")]
-    pub max_rollback_ticks: u32,
-    #[serde(default = "default_input_lead")]
-    pub input_lead_ticks: u32,
-    #[serde(default = "default_token_secret")]
-    pub token_secret: String,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            bind_address: default_bind_address(),
-            ws_url: default_ws_url(),
-            region: default_region(),
-            log_level: default_log_level(),
-            room_capacity: default_room_capacity(),
-            snapshot_rate_hz: default_snapshot_rate(),
-            tick_rate_hz: default_tick_rate(),
-            max_rollback_ticks: default_max_rollback(),
-            input_lead_ticks: default_input_lead(),
-            token_secret: default_token_secret(),
-        }
-    }
 }
 
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
-        let path = env::var("SERVER_CONFIG").unwrap_or_else(|_| DEFAULT_CONFIG_PATH.to_string());
-        if Path::new(&path).exists() {
-            let s = fs::read_to_string(&path)?;
-            let mut cfg: Config = toml::from_str(&s)?;
-            cfg.apply_env_overrides();
-            Ok(cfg)
-        } else {
-            let mut cfg = Config::default();
-            cfg.apply_env_overrides();
-            Ok(cfg)
-        }
+        dotenvy::dotenv().ok();
+        let figment = Figment::new()
+            .merge(figment::providers::Serialized::defaults(Config::default()))
+            .merge(Env::prefixed("APP_"));
+        Ok(figment.extract()?)
     }
+}
 
-    fn apply_env_overrides(&mut self) {
-        if let Ok(val) = env::var("SERVER_BIND_ADDRESS") {
-            self.bind_address = val;
-        }
-        if let Ok(val) = env::var("SERVER_WS_URL") {
-            self.ws_url = val;
-        }
-        if let Ok(val) = env::var("SERVER_REGION") {
-            self.region = val;
-        }
-        if let Ok(val) = env::var("SERVER_LOG_LEVEL") {
-            self.log_level = val;
-        }
-        if let Ok(val) = env::var("SERVER_ROOM_CAPACITY") {
-            if let Ok(parsed) = val.parse() {
-                self.room_capacity = parsed;
-            }
-        }
-        if let Ok(val) = env::var("SERVER_SNAPSHOT_RATE") {
-            if let Ok(parsed) = val.parse() {
-                self.snapshot_rate_hz = parsed;
-            }
-        }
-        if let Ok(val) = env::var("SERVER_TICK_RATE") {
-            if let Ok(parsed) = val.parse() {
-                self.tick_rate_hz = parsed;
-            }
-        }
-        if let Ok(val) = env::var("SERVER_MAX_ROLLBACK") {
-            if let Ok(parsed) = val.parse() {
-                self.max_rollback_ticks = parsed;
-            }
-        }
-        if let Ok(val) = env::var("SERVER_INPUT_LEAD") {
-            if let Ok(parsed) = val.parse() {
-                self.input_lead_ticks = parsed;
-            }
-        }
-        if let Ok(val) = env::var("SERVER_TOKEN_SECRET") {
-            self.token_secret = val;
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            api_port: default_api_port(),
+            ws_port: default_ws_port(),
+            api_bind: default_bind(),
+            ws_bind: default_ws_bind(),
+            jwt_secret: default_jwt_secret(),
+            default_max_players: default_room_capacity(),
+            region: default_region(),
+            enable_permessage_deflate: default_enable_deflate(),
+            require_ready: default_ready_required(),
+            log_level: default_log_level(),
         }
     }
 }
 
-fn default_bind_address() -> String {
-    "0.0.0.0:3000".to_string()
+const fn default_api_port() -> u16 {
+    8080
 }
-fn default_ws_url() -> String {
-    "ws://localhost:3000/v1/ws".to_string()
+
+const fn default_ws_port() -> u16 {
+    8081
 }
+
+fn default_bind() -> String {
+    format!("0.0.0.0:{}", default_api_port())
+}
+
+fn default_ws_bind() -> String {
+    format!("0.0.0.0:{}", default_ws_port())
+}
+
+fn default_jwt_secret() -> String {
+    "dev-secret".to_string()
+}
+
+const fn default_room_capacity() -> u32 {
+    4
+}
+
 fn default_region() -> String {
-    "local".to_string()
+    "local-dev".to_string()
 }
+
+const fn default_enable_deflate() -> bool {
+    true
+}
+
+const fn default_ready_required() -> bool {
+    false
+}
+
 fn default_log_level() -> String {
     "info".to_string()
-}
-fn default_room_capacity() -> usize {
-    8
-}
-fn default_snapshot_rate() -> u32 {
-    10
-}
-fn default_tick_rate() -> u32 {
-    60
-}
-fn default_max_rollback() -> u32 {
-    120
-}
-fn default_input_lead() -> u32 {
-    2
-}
-fn default_token_secret() -> String {
-    "development-secret-change-me".to_string()
 }
