@@ -107,7 +107,7 @@ fn default_bind_address() -> String {
     "0.0.0.0:3000".to_string()
 }
 fn default_ws_url() -> String {
-    "wss://localhost:3000/v1/ws".to_string()
+    "ws://localhost:3000/v1/ws".to_string()
 }
 fn default_region() -> String {
     "local".to_string()
