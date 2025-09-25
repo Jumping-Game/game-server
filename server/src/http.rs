@@ -11,11 +11,13 @@ use crate::{
 use axum::{
     extract::{Path, State},
     headers::{authorization::Bearer, Authorization},
+    http::Method,
     routing::{get, post},
     Json, Router, TypedHeader,
 };
 use serde::Deserialize;
 use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone)]
 pub struct HttpState {
@@ -40,6 +42,11 @@ pub fn router(state: HttpState) -> Router {
     let state = Arc::new(state);
     metrics::init();
 
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(Any);
+
     Router::new()
         .route("/v1/rooms", post(create_room))
         .route("/v1/rooms/:room_id/join", post(join_room))
@@ -48,6 +55,7 @@ pub fn router(state: HttpState) -> Router {
         .route("/healthz", get(healthz))
         .route("/metrics", get(metrics::metrics_handler))
         .route("/v1/ws", get(ws::upgrade_handler))
+        .layer(cors)
         .with_state(state)
 }
 
