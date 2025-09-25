@@ -39,14 +39,14 @@ pub struct PlayerRecord {
     pub name: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusResponse {
     pub regions: Vec<RegionStatus>,
     pub server_pv: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegionStatus {
     pub id: String,
@@ -63,7 +63,7 @@ pub struct CreateRoomRequest {
     pub mode: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRoomResponse {
     pub room_id: String,
@@ -79,7 +79,7 @@ pub struct JoinRoomRequest {
     pub name: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JoinRoomResponse {
     pub room_id: String,

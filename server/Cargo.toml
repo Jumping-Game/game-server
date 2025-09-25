@@ -32,3 +32,29 @@ insta = "1"
 proptest = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }
 serde_json = "1"
+tokio-tungstenite = "0.19"
+hyper = "0.14"
+
+[[test]]
+name = "determinism"
+path = "../tests/determinism.rs"
+
+[[test]]
+name = "e2e_matchmaking"
+path = "../tests/e2e_matchmaking.rs"
+
+[[test]]
+name = "e2e_ws_roundtrip"
+path = "../tests/e2e_ws_roundtrip.rs"
+
+[[test]]
+name = "rate_limit"
+path = "../tests/rate_limit.rs"
+
+[[test]]
+name = "reconnect"
+path = "../tests/reconnect.rs"
+
+[[test]]
+name = "network_spec"
+path = "../tests/network_spec.rs"
