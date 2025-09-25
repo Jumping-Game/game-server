@@ -375,6 +375,14 @@ async fn websocket_join_sequence_matches_spec() {
     let start = expect_outbound(&mut socket, "start").await;
     if let OutboundMessage::Start { payload, .. } = start {
         assert_eq!(payload.tps, state.config.tick_rate_hz);
+        assert!(
+            !payload.players.is_empty(),
+            "start payload must include at least the local player"
+        );
+        assert!(
+            payload.players.iter().any(|p| p.id == player_id),
+            "start payload missing local player"
+        );
     } else {
         panic!("expected start frame");
     }
