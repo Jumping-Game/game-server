@@ -171,18 +171,24 @@ async fn sim_loop(_room_id: String, mut rx: mpsc::Receiver<SimCommand>) {
                     if let Some(room) = room_ref.as_ref().and_then(|r| r.upgrade()) {
                         let mut room_guard = room.write().await;
                         let seq = room_guard.next_seq();
-                        let mut net_players = Vec::new();
-                        for (id, state) in players.iter() {
-                            if let Some(p) = room_guard.find_player_mut(id) {
-                                p.last_ack_tick = state.last_ack_tick;
-                                p.last_input_seq = state.last_input_seq;
+                        let mut net_players = Vec::with_capacity(room_guard.players.len());
+                        for player in room_guard.players.iter_mut() {
+                            let sim_state = players.get(&player.id);
+                            if let Some(state) = sim_state {
+                                player.last_ack_tick = state.last_ack_tick;
+                                player.last_input_seq = state.last_input_seq;
                             }
+                            let (x, y, vx, vy) = if let Some(state) = sim_state {
+                                (state.x, state.y, state.vx, state.vy)
+                            } else {
+                                (0.0, 0.0, 0.0, 0.0)
+                            };
                             net_players.push(NetPlayer {
-                                id: id.clone(),
-                                x: state.x,
-                                y: state.y,
-                                vx: state.vx,
-                                vy: state.vy,
+                                id: player.id.clone(),
+                                x,
+                                y,
+                                vx,
+                                vy,
                                 alive: true,
                             });
                         }

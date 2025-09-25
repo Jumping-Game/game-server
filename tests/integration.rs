@@ -159,7 +159,21 @@ async fn lobby_to_start_flow() {
     let countdown_master = recv_type(&mut master_ws, "start_countdown").await;
     assert_eq!(countdown_master["payload"]["countdownSec"], 0);
     let _countdown_member = recv_type(&mut member_ws, "start_countdown").await;
-    let _start_master = recv_type(&mut master_ws, "start").await;
+    let start_master = recv_type(&mut master_ws, "start").await;
+    let start_roster = start_master["payload"]["players"].as_array().unwrap();
+    assert_eq!(
+        start_roster.len(),
+        2,
+        "start roster should list both players"
+    );
+    for pid in [&master_id, &member_id] {
+        assert!(
+            start_roster
+                .iter()
+                .any(|player| player["id"].as_str() == Some(pid)),
+            "start payload missing player {pid}"
+        );
+    }
     let _start_member = recv_type(&mut member_ws, "start").await;
 
     master_ws
@@ -174,6 +188,27 @@ async fn lobby_to_start_flow() {
         .unwrap();
     let snapshot = recv_type(&mut master_ws, "snapshot").await;
     assert!(snapshot["payload"]["tick"].as_u64().unwrap() >= 1);
+    let snap_players = snapshot["payload"]["players"].as_array().unwrap();
+    assert_eq!(
+        snap_players.len(),
+        2,
+        "snapshot should include both players"
+    );
+    let snapshot_member = recv_type(&mut member_ws, "snapshot").await;
+    let member_players = snapshot_member["payload"]["players"].as_array().unwrap();
+    assert_eq!(
+        member_players.len(),
+        2,
+        "member snapshot should include both players",
+    );
+    for pid in [&master_id, &member_id] {
+        assert!(
+            member_players
+                .iter()
+                .any(|player| player["id"].as_str() == Some(pid)),
+            "member snapshot missing player {pid}"
+        );
+    }
 
     shutdown.send(()).ok();
     handle.abort();

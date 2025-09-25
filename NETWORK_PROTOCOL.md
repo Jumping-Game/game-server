@@ -510,7 +510,7 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
 ```json
 {"type":"lobby_state","pv":1,"seq":50,"ts":1737766,"payload":{"roomState":"lobby","players":[{"id":"p1","name":"bene","ready":true,"role":"master"},{"id":"p2","name":"ally","ready":true,"role":"member"}]}}
 {"type":"start_countdown","pv":1,"seq":60,"ts":1737767,"payload":{"startAtMs":1737765123456,"serverTick":12000,"countdownSec":3}}
-{"type":"start","pv":1,"seq":61,"ts":1737767,"payload":{"startTick":300,"serverTick":12042,"serverTimeMs":1737765123456,"tps":60}}
+{"type":"start","pv":1,"seq":61,"ts":1737767,"payload":{"startTick":300,"serverTick":12042,"serverTimeMs":1737765123456,"tps":60,"players":[{"id":"p1","name":"bene","role":"master","ready":true,"characterId":"aurora"},{"id":"p2","name":"ally","role":"member","ready":true,"characterId":"cobalt"}]}}
 ```
 
 ---
@@ -534,6 +534,7 @@ Frequency: 20–30 Hz; server accepts `tick` in window `[currentTick - maxRollba
   * Added **Room Master + Lobby** flow (REST `/start`, optional WS `start_request`).
   * New S2C: `lobby_state`, `start_countdown`, `role_changed`; `welcome` extended with `role`, `roomState`, `lobby`.
   * New C2S: `character_select`; lobby players now advertise optional `characterId`.
+  * `start` frames include the full lobby roster (id, name, role, ready, `characterId`).
   * Added errors: `NOT_MASTER`, `ROOM_STATE_INVALID`, `ROOM_NOT_READY`, `START_ALREADY`, `COUNTDOWN_ACTIVE`.
   * Clarified local `ws://`/`http://` allowances; compression “recommended” vs “required”.
 
@@ -607,7 +608,13 @@ interface S2C_LobbyState {
   maxPlayers?: number;
 }
 interface S2C_StartCountdown { startAtMs: number; serverTick: number; countdownSec: number; }
-interface S2C_Start { startTick: number; serverTick: number; serverTimeMs: number; tps: number; }
+interface S2C_Start {
+  startTick: number;
+  serverTick: number;
+  serverTimeMs: number;
+  tps: number;
+  players: LobbyPlayer[];
+}
 
 interface NetPlayer { id: string; x: number; y: number; vx: number; vy: number; alive: boolean; }
 type NetEvent = { kind: "spring" | "break"; x: number; y: number; tick: number; };

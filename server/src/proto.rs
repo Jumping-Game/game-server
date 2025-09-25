@@ -258,6 +258,7 @@ pub struct StartPayload {
     pub server_tick: u64,
     pub server_time_ms: u64,
     pub tps: u64,
+    pub players: Vec<LobbyPlayer>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
