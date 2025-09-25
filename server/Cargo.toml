@@ -5,57 +5,51 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-axum = { version = "0.6", features = ["macros", "ws", "headers"] }
-base64 = "0.21"
-dashmap = "5"
-hmac = "0.12"
-prometheus = "0.13"
+axum = { version = "0.6", features = ["macros", "json"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+dotenvy = "0.15"
+figment = { version = "0.10", features = ["env"] }
+futures = "0.3"
+futures-util = "0.3"
+hyper = { version = "0.14", features = ["http1", "server"] }
+jsonwebtoken = "9"
 once_cell = "1"
-rand = { version = "0.8", features = ["std"] }
+rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_with = "2.3"
-sha2 = "0.10"
-thiserror = "1"
-toml = "0.5"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "fs"] }
-url = "=2.3.1"
+serde_with = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
+tokio-stream = "0.1"
+tungstenite = { version = "0.21" }
+tokio-tungstenite = { version = "0.21" }
+tokio-util = { version = "0.7", features = ["codec"] }
+tower = { version = "0.4", features = ["limit"] }
+tower-http = { version = "0.4", features = ["cors", "compression-full", "limit", "trace"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.2", default-features = false, features = ["fmt", "env-filter", "json"] }
-tower = "0.4"
-tower-http = { version = "0.4", features = ["cors"] }
-regex = { version = "1", default-features = false, features = ["std", "unicode", "unicode-case"] }
-futures-util = "0.3"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
+ulid = "1"
+url = "2"
+serde_repr = "0.1"
+thiserror = "1"
+base64 = "0.21"
 
 [dev-dependencies]
-axum = { version = "0.6", features = ["macros", "ws", "headers"] }
-insta = "1"
-proptest = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }
+reqwest = { version = "0.11.18", default-features = false, features = ["json"] }
 serde_json = "1"
-tokio-tungstenite = "0.19"
-hyper = "0.14"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }
+tokio-tungstenite = { version = "0.21" }
+ulid = "1"
+anyhow = "1"
+
 
 [[test]]
-name = "determinism"
-path = "../tests/determinism.rs"
+name = "integration"
+path = "../tests/integration.rs"
 
 [[test]]
-name = "e2e_matchmaking"
-path = "../tests/e2e_matchmaking.rs"
+name = "lobby"
+path = "../tests/lobby.rs"
 
 [[test]]
-name = "e2e_ws_roundtrip"
-path = "../tests/e2e_ws_roundtrip.rs"
-
-[[test]]
-name = "rate_limit"
-path = "../tests/rate_limit.rs"
-
-[[test]]
-name = "reconnect"
-path = "../tests/reconnect.rs"
-
-[[test]]
-name = "network_spec"
-path = "../tests/network_spec.rs"
+name = "proto"
+path = "../tests/proto.rs"
