@@ -28,7 +28,7 @@ async fn create_and_join_room() {
     let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
     let bootstrap: server::matchmaker::CreateRoomResponse =
         serde_json::from_slice(&body_bytes).unwrap();
-    assert_eq!(bootstrap.seed.as_u64() > 0, true);
+    assert!(bootstrap.seed.as_u64() > 0);
 
     let join_uri = format!("/v1/rooms/{}/join", bootstrap.room_id);
     let join_body = serde_json::json!({ "name": "guest" });
