@@ -8,6 +8,11 @@ use tokio::{
     time::{Duration, Instant, MissedTickBehavior},
 };
 
+const SNAPSHOT_INTERVAL_MS: u64 = 100;
+const FULL_SNAPSHOT_INTERVAL_MS: u64 = 1000;
+const MAX_ROLLBACK_TICKS: u64 = 120;
+const INPUT_LEAD_TICKS: u64 = 2;
+
 #[derive(Clone)]
 pub struct SimHandle {
     tx: mpsc::Sender<SimCommand>,
@@ -136,6 +141,11 @@ async fn sim_loop(_room_id: String, mut rx: mpsc::Receiver<SimCommand>) {
                     SimCommand::SubmitInput { player_id, tick: input_tick, axis_x, jump, seq } => {
                         if running {
                             if let Some(state) = players.get_mut(&player_id) {
+                                let min_tick = tick.saturating_sub(MAX_ROLLBACK_TICKS);
+                                let max_tick = tick + INPUT_LEAD_TICKS;
+                                if input_tick < min_tick || input_tick > max_tick {
+                                    continue;
+                                }
                                 state.axis_x = axis_x.clamp(-1.0, 1.0);
                                 state.jump = jump;
                                 state.last_input_seq = seq;
@@ -149,8 +159,29 @@ async fn sim_loop(_room_id: String, mut rx: mpsc::Receiver<SimCommand>) {
                         force_full = true;
                         last_snapshot = Instant::now();
                         last_full_at = Instant::now();
+                        emit_snapshot(
+                            &room_ref,
+                            &mut players,
+                            tick,
+                            &mut force_full,
+                            &mut last_full_at,
+                            &mut last_snapshot,
+                        ).await;
                     }
-                    SimCommand::ForceSnapshot => force_full = true,
+                    SimCommand::ForceSnapshot => {
+                        force_full = true;
+                        if running {
+                            emit_snapshot(
+                                &room_ref,
+                                &mut players,
+                                tick,
+                                &mut force_full,
+                                &mut last_full_at,
+                                &mut last_snapshot,
+                            )
+                            .await;
+                        }
+                    }
                 }
             }
             _ = tick_interval.tick(), if running => {
@@ -165,54 +196,83 @@ async fn sim_loop(_room_id: String, mut rx: mpsc::Receiver<SimCommand>) {
                     player.last_ack_tick = tick;
                 }
 
-                let snapshot_due = last_snapshot.elapsed() >= Duration::from_millis(100);
+                let snapshot_due = last_snapshot.elapsed() >= Duration::from_millis(SNAPSHOT_INTERVAL_MS);
                 if snapshot_due {
-                    let is_full = force_full || last_full_at.elapsed() >= Duration::from_secs(1);
-                    if let Some(room) = room_ref.as_ref().and_then(|r| r.upgrade()) {
-                        let mut room_guard = room.write().await;
-                        let seq = room_guard.next_seq();
-                        let mut net_players = Vec::with_capacity(room_guard.players.len());
-                        for player in room_guard.players.iter_mut() {
-                            let sim_state = players.get(&player.id);
-                            if let Some(state) = sim_state {
-                                player.last_ack_tick = state.last_ack_tick;
-                                player.last_input_seq = state.last_input_seq;
-                            }
-                            let (x, y, vx, vy) = if let Some(state) = sim_state {
-                                (state.x, state.y, state.vx, state.vy)
-                            } else {
-                                (0.0, 0.0, 0.0, 0.0)
-                            };
-                            net_players.push(NetPlayer {
-                                id: player.id.clone(),
-                                x,
-                                y,
-                                vx,
-                                vy,
-                                alive: true,
-                            });
-                        }
-                        let payload = SnapshotPayload {
-                            tick,
-                            ack_tick: tick,
-                            last_input_seq: players.values().map(|p| p.last_input_seq).max().unwrap_or(0),
-                            full: is_full,
-                            players: net_players,
-                            events: Vec::new(),
-                            stats: SnapshotStats { dropped_snapshots: 0 },
-                        };
-                        let frame = ServerFrame::Snapshot {
-                            meta: Envelope::boxed("snapshot", seq, payload),
-                        };
-                        room_guard.broadcast(frame).await;
-                    }
-                    last_snapshot = Instant::now();
-                    if force_full {
-                        last_full_at = Instant::now();
-                        force_full = false;
-                    }
+                    emit_snapshot(
+                        &room_ref,
+                        &mut players,
+                        tick,
+                        &mut force_full,
+                        &mut last_full_at,
+                        &mut last_snapshot,
+                    ).await;
                 }
             }
         }
+    }
+}
+
+async fn emit_snapshot(
+    room_ref: &Option<std::sync::Weak<tokio::sync::RwLock<Room>>>,
+    players: &mut HashMap<String, SimPlayer>,
+    tick: u64,
+    force_full: &mut bool,
+    last_full_at: &mut Instant,
+    last_snapshot: &mut Instant,
+) {
+    let Some(room) = room_ref.as_ref().and_then(|r| r.upgrade()) else {
+        return;
+    };
+    let mut room_guard = room.write().await;
+    let seq = room_guard.next_seq();
+    let mut net_players = Vec::with_capacity(room_guard.players.len());
+    let mut max_input_seq = 0;
+    for player in room_guard.players.iter_mut() {
+        if let Some(state) = players.get(&player.id) {
+            player.last_ack_tick = state.last_ack_tick;
+            player.last_input_seq = state.last_input_seq;
+            max_input_seq = max_input_seq.max(state.last_input_seq);
+            net_players.push(NetPlayer {
+                id: player.id.clone(),
+                x: state.x,
+                y: state.y,
+                vx: state.vx,
+                vy: state.vy,
+                alive: true,
+                character_id: player.character_id.clone(),
+            });
+        } else {
+            net_players.push(NetPlayer {
+                id: player.id.clone(),
+                x: 0.0,
+                y: 0.0,
+                vx: 0.0,
+                vy: 0.0,
+                alive: true,
+                character_id: player.character_id.clone(),
+            });
+        }
+    }
+    let full_due =
+        *force_full || last_full_at.elapsed() >= Duration::from_millis(FULL_SNAPSHOT_INTERVAL_MS);
+    let payload = SnapshotPayload {
+        tick,
+        ack_tick: tick,
+        last_input_seq: max_input_seq,
+        full: full_due,
+        players: net_players,
+        events: Vec::new(),
+        stats: SnapshotStats {
+            dropped_snapshots: 0,
+        },
+    };
+    let frame = ServerFrame::Snapshot {
+        meta: Envelope::boxed("snapshot", seq, payload),
+    };
+    room_guard.broadcast(frame).await;
+    *last_snapshot = Instant::now();
+    if full_due {
+        *force_full = false;
+        *last_full_at = Instant::now();
     }
 }

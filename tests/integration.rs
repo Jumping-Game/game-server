@@ -107,8 +107,8 @@ async fn lobby_to_start_flow() {
     let master_ws_url = format!("ws://{}/v1/ws?token={}", config.ws_bind, master_token);
     let member_ws_url = format!("ws://{}/v1/ws?token={}", config.ws_bind, member_token);
 
-    let (mut master_ws, _) = connect_async(master_ws_url).await.unwrap();
-    let (mut member_ws, _) = connect_async(member_ws_url).await.unwrap();
+    let (mut master_ws, _) = connect_async(master_ws_url.clone()).await.unwrap();
+    let (mut member_ws, _) = connect_async(member_ws_url.clone()).await.unwrap();
 
     let join_payload = |name: &str| {
         serde_json::to_string(&serde_json::json!({
@@ -116,6 +116,22 @@ async fn lobby_to_start_flow() {
             "payload":{"name":name}
         }))
         .unwrap()
+    };
+    let character_select_payload = |seq: u64, character: &str| {
+        serde_json::to_string(&serde_json::json!({
+            "type":"character_select","pv":1,"seq":seq,"ts":util::now_ms(),
+            "payload":{"characterId":character}
+        }))
+        .unwrap()
+    };
+    let assert_character = |state: &Value, player_id: &str, expected: &str| {
+        let players = state["payload"]["players"].as_array().unwrap();
+        let character = players
+            .iter()
+            .find(|p| p["id"].as_str() == Some(player_id))
+            .and_then(|p| p["characterId"].as_str())
+            .unwrap();
+        assert_eq!(character, expected);
     };
 
     master_ws
@@ -134,8 +150,30 @@ async fn lobby_to_start_flow() {
     );
     let _lobby_master = recv_type(&mut master_ws, "lobby_state").await;
     let welcome_member = recv_type(&mut member_ws, "welcome").await;
+    let member_resume = welcome_member["payload"]["resumeToken"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert_eq!(welcome_member["payload"]["roomId"], room_id);
     let _lobby_member = recv_type(&mut member_ws, "lobby_state").await;
+
+    master_ws
+        .send(Message::Text(character_select_payload(2, "aurora")))
+        .await
+        .unwrap();
+    let lobby_after_master = recv_type(&mut master_ws, "lobby_state").await;
+    assert_character(&lobby_after_master, &master_id, "aurora");
+    let lobby_master_for_member = recv_type(&mut member_ws, "lobby_state").await;
+    assert_character(&lobby_master_for_member, &master_id, "aurora");
+
+    member_ws
+        .send(Message::Text(character_select_payload(2, "cobalt")))
+        .await
+        .unwrap();
+    let lobby_after_member = recv_type(&mut master_ws, "lobby_state").await;
+    assert_character(&lobby_after_member, &member_id, "cobalt");
+    let lobby_member_echo = recv_type(&mut member_ws, "lobby_state").await;
+    assert_character(&lobby_member_echo, &member_id, "cobalt");
 
     let member_start = client
         .post(format!("{}/v1/rooms/{}/start", base, room_id))
@@ -144,6 +182,8 @@ async fn lobby_to_start_flow() {
         .await
         .unwrap();
     assert_eq!(member_start.status(), StatusCode::FORBIDDEN);
+    let member_start_body = member_start.json::<Value>().await.unwrap();
+    assert_eq!(member_start_body["code"], "NOT_MASTER");
 
     let master_start = client
         .post(format!("{}/v1/rooms/{}/start", base, room_id))
@@ -160,6 +200,7 @@ async fn lobby_to_start_flow() {
     assert_eq!(countdown_master["payload"]["countdownSec"], 0);
     let _countdown_member = recv_type(&mut member_ws, "start_countdown").await;
     let start_master = recv_type(&mut master_ws, "start").await;
+    let start_tick = start_master["payload"]["startTick"].as_u64().unwrap();
     let start_roster = start_master["payload"]["players"].as_array().unwrap();
     assert_eq!(
         start_roster.len(),
@@ -174,27 +215,35 @@ async fn lobby_to_start_flow() {
             "start payload missing player {pid}"
         );
     }
+    let assert_roster_character = |players: &[Value], player_id: &str, expected: &str| {
+        let character = players
+            .iter()
+            .find(|p| p["id"].as_str() == Some(player_id))
+            .and_then(|p| p["characterId"].as_str())
+            .unwrap();
+        assert_eq!(character, expected);
+    };
+    assert_roster_character(start_roster, &master_id, "aurora");
+    assert_roster_character(start_roster, &member_id, "cobalt");
     let _start_member = recv_type(&mut member_ws, "start").await;
 
-    master_ws
-        .send(Message::Text(
-            serde_json::to_string(&serde_json::json!({
-                "type":"input","pv":1,"seq":2,"ts":util::now_ms(),
-                "payload":{"tick":1,"axisX":0.5}
-            }))
-            .unwrap(),
-        ))
-        .await
-        .unwrap();
     let snapshot = recv_type(&mut master_ws, "snapshot").await;
-    assert!(snapshot["payload"]["tick"].as_u64().unwrap() >= 1);
+    let snapshot_tick = snapshot["payload"]["tick"].as_u64().unwrap();
+    assert!(
+        snapshot_tick >= start_tick,
+        "snapshot tick should be at or after start"
+    );
+    assert!(snapshot["payload"]["full"].as_bool().unwrap());
     let snap_players = snapshot["payload"]["players"].as_array().unwrap();
     assert_eq!(
         snap_players.len(),
         2,
         "snapshot should include both players"
     );
+    assert_roster_character(snap_players, &master_id, "aurora");
+    assert_roster_character(snap_players, &member_id, "cobalt");
     let snapshot_member = recv_type(&mut member_ws, "snapshot").await;
+    assert!(snapshot_member["payload"]["full"].as_bool().unwrap());
     let member_players = snapshot_member["payload"]["players"].as_array().unwrap();
     assert_eq!(
         member_players.len(),
@@ -209,6 +258,32 @@ async fn lobby_to_start_flow() {
             "member snapshot missing player {pid}"
         );
     }
+    assert_roster_character(member_players, &master_id, "aurora");
+    assert_roster_character(member_players, &member_id, "cobalt");
+
+    let ack_tick = snapshot_member["payload"]["ackTick"].as_u64().unwrap();
+
+    member_ws.close(None).await.unwrap();
+
+    let (mut member_ws, _) = connect_async(member_ws_url.clone()).await.unwrap();
+    let reconnect_payload = serde_json::to_string(&serde_json::json!({
+        "type":"reconnect","pv":1,"seq":1,"ts":util::now_ms(),
+        "payload":{"playerId": member_id,"resumeToken": member_resume,"lastAckTick": ack_tick}
+    }))
+    .unwrap();
+    member_ws
+        .send(Message::Text(reconnect_payload))
+        .await
+        .unwrap();
+    let welcome_reconnect = recv_type(&mut member_ws, "welcome").await;
+    assert_eq!(welcome_reconnect["payload"]["roomState"], "running");
+    let _lobby_reconnect = recv_type(&mut member_ws, "lobby_state").await;
+    let reconnect_snapshot = recv_type(&mut member_ws, "snapshot").await;
+    assert!(reconnect_snapshot["payload"]["full"].as_bool().unwrap());
+    let reconnect_players = reconnect_snapshot["payload"]["players"].as_array().unwrap();
+    assert_eq!(reconnect_players.len(), 2);
+    assert_roster_character(reconnect_players, &master_id, "aurora");
+    assert_roster_character(reconnect_players, &member_id, "cobalt");
 
     shutdown.send(()).ok();
     handle.abort();
